@@ -90,6 +90,7 @@ param manageFpaCertificate = {{ .firstPartyAppCertificate.manage }}
 
 // Azure Monitor Workspace
 param azureMonitoringWorkspaceId = '__azureMonitoringWorkspaceId__'
+param regionRg = '{{ .regionRG }}'
 
 // MDSD / Genevabits
 @description('The namespace of the logs')

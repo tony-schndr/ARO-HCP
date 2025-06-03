@@ -8,6 +8,7 @@ use (
 	./frontend
 	./internal
 	./test
+	./tooling/alert-driven-automation
 	./tooling/image-sync
 	./tooling/mcerepkg
 	./tooling/pipeline-documentation

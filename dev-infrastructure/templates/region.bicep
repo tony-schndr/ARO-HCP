@@ -205,6 +205,14 @@ resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2023-09
 //   M O N I T O R I N G
 //
 
+module eventHub '../modules/metrics/eventhub.bicep' = {
+  name: 'event-hub'  
+  params: {
+    eventHubNamespaceName: 'aro-hcp-events'
+    projectName: 'alerts'
+  }
+}
+
 module svcMonitoring '../modules/metrics/monitor.bicep' = {
   name: 'svc-monitor'
   params: {

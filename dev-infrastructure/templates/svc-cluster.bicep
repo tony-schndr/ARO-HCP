@@ -229,6 +229,9 @@ param genevaActionsServiceTag string
 @description('The Azure Resource ID of the Azure Monitor Workspace (stores prometheus metrics)')
 param azureMonitoringWorkspaceId string
 
+@description('Regional RG')
+param regionRg string
+
 @description('The name of the CS managed identity')
 param csMIName string
 
@@ -377,6 +380,11 @@ module svcCluster '../modules/aks-cluster-base.bicep' = {
         uamiName: 'prometheus'
         namespace: 'prometheus'
         serviceAccountName: 'prometheus'
+      }
+      ada_wi: {
+        uamiName: 'ada'
+        namespace: 'ada'
+        serviceAccountName: 'ada'
       }
     })
     aksKeyVaultName: aksKeyVaultName
@@ -710,4 +718,18 @@ module svcKVNSPProfile '../modules/network/nsp-profile.bicep' = if (serviceKeyVa
   dependsOn: [
     svcNSP
   ]
+}
+
+//
+// E V E N T  H U B  A C C E S S
+//
+
+module eventHubAccess '../modules/metrics/eventhub-access.bicep' = {
+  name: 'event-hub-access'
+  scope: resourceGroup(regionRg)
+  params: {
+    eventHubName: 'alerts'
+    eventHubNamespaceName: 'aro-hcp-events'
+    principalId: filter(svcCluster.outputs.userAssignedIdentities, id => id.uamiName == 'ada')[0].uamiPrincipalID
+  }
 }

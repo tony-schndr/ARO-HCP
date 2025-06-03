@@ -39,9 +39,29 @@ resource emailActions 'Microsoft.Insights/actionGroups@2023-01-01' = [
   }
 ]
 
-var actionGroupsCreated = [for (j, index) in emailAdresses: emailActions[index].id]
 
-output allSev1ActionGroups array = union(filter(sev1ActionGroups, a => (a != '')), actionGroupsCreated)
-output allSev2ActionGroups array = union(filter(sev2ActionGroups, a => (a != '')), actionGroupsCreated)
-output allSev3ActionGroups array = union(filter(sev3ActionGroups, a => (a != '')), actionGroupsCreated)
-output allSev4ActionGroups array = union(filter(sev4ActionGroups, a => (a != '')), actionGroupsCreated)
+resource kafkaActions 'Microsoft.Insights/actionGroups@2023-01-01' = {
+  name: 'kafka-action'
+  location: 'Global'
+  properties: {
+    groupShortName: substring(uniqueString('kafka-action'), 0, 8)
+    enabled: true
+    eventHubReceivers: [
+      {
+        name: 'eventhub-receiver'
+        eventHubNameSpace: 'aro-hcp-events'
+        eventHubName: 'alerts'
+        subscriptionId: subscription().id
+        useCommonAlertSchema: true
+      }
+    ]
+  }
+}
+
+var actionGroupsCreated = [for (j, index) in emailAdresses: emailActions[index].id]
+var kafkaActionGroupId = kafkaActions.id
+
+output allSev1ActionGroups array = union(filter(sev1ActionGroups, a => (a != '')), actionGroupsCreated, [kafkaActionGroupId])
+output allSev2ActionGroups array = union(filter(sev2ActionGroups, a => (a != '')), actionGroupsCreated, [kafkaActionGroupId])
+output allSev3ActionGroups array = union(filter(sev3ActionGroups, a => (a != '')), actionGroupsCreated, [kafkaActionGroupId])
+output allSev4ActionGroups array = union(filter(sev4ActionGroups, a => (a != '')), actionGroupsCreated, [kafkaActionGroupId])

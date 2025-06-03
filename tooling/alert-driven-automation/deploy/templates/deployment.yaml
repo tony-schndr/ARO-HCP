@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: ada
+  name: ada
+  namespace: ada
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ada
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: ada
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: ada
+      containers:
+      - image: quay.io/rh_ee_tschneid/ada:latest
+        name: ada
+        resources: {}
+        env:
+        - name: EVENT_HUB_URL
+          value: {{ .Values.eventGridUrl }}
+        - name: EVENT_HUB_NAME
+          value: {{ .Values.eventHubName }}

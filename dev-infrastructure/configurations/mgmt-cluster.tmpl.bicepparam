@@ -56,6 +56,7 @@ param aroDevopsMsiId = '{{ .aroDevopsMsiId }}'
 // Azure Monitor Workspace
 param azureMonitoringWorkspaceId = '__azureMonitoringWorkspaceId__'
 param hcpAzureMonitoringWorkspaceId = '__hcpAzureMonitoringWorkspaceId__'
+param regionRg = '{{ .regionRG }}'
 
 // MDSD / Genevabits
 @description('The namespace of the logs')

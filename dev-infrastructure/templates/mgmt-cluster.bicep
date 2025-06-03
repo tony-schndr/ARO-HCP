@@ -128,6 +128,9 @@ param azureMonitoringWorkspaceId string
 @description('The Azure resource ID of the Azure Monitor Workspace (stores prometheus metrics for hosted control planes)')
 param hcpAzureMonitoringWorkspaceId string
 
+@description('Region rg')
+param regionRg string
+
 // logs
 @description('The namespace of the logs')
 param logsNamespace string
@@ -140,6 +143,8 @@ param logsServiceAccount string
 
 // Log Analytics Workspace ID will be passed from region pipeline if enabled in config
 param logAnalyticsWorkspaceId string = ''
+
+param eventGridResourceGroup string = ''
 
 resource mgmtClusterNSG 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
   location: location
@@ -214,6 +219,11 @@ module mgmtCluster '../modules/aks-cluster-base.bicep' = {
         uamiName: 'prometheus'
         namespace: 'prometheus'
         serviceAccountName: 'prometheus'
+      }
+      ada_wi: {
+        uamiName: 'ada'
+        namespace: 'ada'
+        serviceAccountName: 'ada'
       }
     })
     aksKeyVaultName: aksKeyVaultName
@@ -356,5 +366,19 @@ module eventGrindPrivateEndpoint '../modules/private-endpoint.bicep' = if (maest
     vnetId: mgmtCluster.outputs.aksVnetId
     serviceType: 'eventgrid'
     groupId: 'topicspace'
+  }
+}
+
+//
+// E V E N T  H U B  A C C E S S
+//
+
+module eventHubAccess '../modules/metrics/eventhub-access.bicep' = {
+  name: 'event-hub-access'
+  scope: resourceGroup(regionRg)
+  params: {
+    eventHubName: 'alerts'
+    eventHubNamespaceName: 'aro-hcp-events'
+    principalId: filter(mgmtCluster.outputs.userAssignedIdentities, id => id.uamiName == 'ada')[0].uamiPrincipalID
   }
 }

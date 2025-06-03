@@ -1,0 +1,5 @@
+apiVersion: v2
+name: ada
+description: Alert Driven Automation
+version: 0.1.0
+appVersion: "0.1.0"

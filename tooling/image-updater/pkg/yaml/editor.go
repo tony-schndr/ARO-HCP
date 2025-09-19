@@ -82,6 +82,10 @@ func (e *Editor) SetValue(path, value string) error {
 	}
 
 	node.Value = value
+	// Ensure digest values are not quoted (use plain style for sha256 digests)
+	if strings.HasPrefix(value, "sha256:") {
+		node.Style = 0 // Plain style (no quotes)
+	}
 	return nil
 }
 

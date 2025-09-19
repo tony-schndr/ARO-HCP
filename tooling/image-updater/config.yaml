@@ -19,3 +19,47 @@ images:
       filePath: ../../config/config.msft.clouds-overlay.yaml
     - jsonPath: clouds.dev.environments.pers.defaults.hypershift.image.digest
       filePath: ../../config/config.yaml
+  pko-package:
+    source:
+      registry: quay.io
+      repository: package-operator/package-operator-package
+      tagPattern: "^v\\d+\\.\\d+\\.\\d+$"
+    targets:
+    - jsonPath: clouds.public.environments.int.defaults.pko.imagePackage.digest
+      filePath: ../../config/config.msft.clouds-overlay.yaml
+    - jsonPath: defaults.pko.imagePackage.digest
+      filePath: ../../config/config.yaml
+  pko-manager:
+    source:
+      registry: quay.io
+      repository: package-operator/package-operator-manager
+      tagPattern: "^v\\d+\\.\\d+\\.\\d+$"
+    targets:
+    - jsonPath: clouds.public.environments.int.defaults.pko.imageManager.digest
+      filePath: ../../config/config.msft.clouds-overlay.yaml
+    - jsonPath: defaults.pko.imageManager.digest
+      filePath: ../../config/config.yaml
+  pko-remote-phase-manager:
+    source:
+      registry: quay.io
+      repository: package-operator/remote-phase-manager
+      tagPattern: "^v\\d+\\.\\d+\\.\\d+$"
+    targets:
+    - jsonPath: clouds.public.environments.int.defaults.pko.remotePhaseManager.digest
+      filePath: ../../config/config.msft.clouds-overlay.yaml
+    - jsonPath: defaults.pko.remotePhaseManager.digest
+      filePath: ../../config/config.yaml
+  arohcpfrontend:
+    source:
+      registry: arohcpsvcdev.azurecr.io
+      repository: arohcpfrontend
+    targets:
+    - jsonPath: clouds.public.environments.int.defaults.frontend.image.digest
+      filePath: ../../config/config.msft.clouds-overlay.yaml
+  arohcpbackend:
+    source:
+      registry: arohcpsvcdev.azurecr.io
+      repository: arohcpbackend
+    targets:
+    - jsonPath: clouds.public.environments.int.defaults.backend.image.digest
+      filePath: ../../config/config.msft.clouds-overlay.yaml

@@ -1,0 +1,21 @@
+images:
+  maestro:
+    source:
+      registry: quay.io
+      repository: redhat-user-workloads/maestro-rhtap-tenant/maestro/maestro
+      tagPattern: "^[a-f0-9]{40}$"
+    targets:
+    - jsonPath: clouds.public.environments.int.defaults.maestro.image.digest
+      filePath: ../../config/config.msft.clouds-overlay.yaml
+    - jsonPath: clouds.dev.defaults.maestro.image.digest
+      filePath: ../../config/config.yaml
+  hypershift:
+    source:
+      registry: quay.io
+      repository: acm-d/rhtap-hypershift-operator
+      tagPattern: "^latest$"
+    targets:
+    - jsonPath: clouds.public.environments.int.defaults.hypershift.image.digest
+      filePath: ../../config/config.msft.clouds-overlay.yaml
+    - jsonPath: clouds.dev.environments.pers.defaults.hypershift.image.digest
+      filePath: ../../config/config.yaml

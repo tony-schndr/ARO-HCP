@@ -1,0 +1,19 @@
+gitHubOrg: "Azure"
+gitHubRepo: "ARO-HCP"
+gitHubBaseBranch: "main"
+# GitHub authentication
+gitHubLogin: "Azure" # Match the organization to prevent forks from being created since ARO-HCP CI checks can't run from forks.
+# Git commit settings
+gitName: "ARO HCP Bot"
+gitEmail: "aro-hcp-bot@microsoft.com"
+# Remote repository settings
+remoteName: "ARO-HCP" # Name of the fork (should match the repo name)
+headBranchName: "autobump-image-digests" # Branch name for the PR
+# PR Labels (optional)
+labels:
+- "autobump"
+skipOncallAssignment: true
+selfAssign: false
+# Commit signing (optional)
+signoff: false # Set to true to add Signed-off-by line to commits
+skipPullRequest: false # Set to true to skip PR creation (for testing)

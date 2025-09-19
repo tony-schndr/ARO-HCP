@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -104,16 +105,13 @@ func (c *QuayClient) getDigestByTagPattern(repository string, tagPattern string)
 		return "", fmt.Errorf("failed to fetch all tags: %w", err)
 	}
 
-	// Find the most recent tag matching the pattern
-	var mostRecent *QuayTag
-	matchCount := 0
+	// Filter tags by pattern and exclude metadata tags
+	var matchingTags []QuayTag
 	for _, tag := range tags {
 		// Check if tag matches the pattern
 		if !regex.MatchString(tag.Name) {
 			continue
 		}
-
-		matchCount++
 
 		// Skip signature and attestation tags
 		if isMetadataTag(tag.Name) {
@@ -124,27 +122,39 @@ func (c *QuayClient) getDigestByTagPattern(repository string, tagPattern string)
 			continue
 		}
 
-		if mostRecent == nil || tag.LastModified > mostRecent.LastModified {
-			mostRecent = &tag
-		}
+		matchingTags = append(matchingTags, tag)
 	}
 
-	fmt.Printf("  Found %d tags matching pattern\n", matchCount)
+	fmt.Printf("  Found %d tags matching pattern\n", len(matchingTags))
 
-	if mostRecent == nil {
+	if len(matchingTags) == 0 {
 		return "", fmt.Errorf("no tags matching pattern %s found for repository %s", tagPattern, repository)
 	}
 
-	fmt.Printf("  Selected tag: %s\n", mostRecent.Name)
+	// Sort tags by last modified date (newest first)
+	sort.Slice(matchingTags, func(i, j int) bool {
+		// For descending sort (newest first), we want i > j in terms of time
+		return c.compareTimestamps(matchingTags[i].LastModified, matchingTags[j].LastModified)
+	})
+
+	// Debug: show top 5 tags after sorting
+	fmt.Printf("  Top 5 tags after sorting by last modified:\n")
+	for i := 0; i < len(matchingTags) && i < 5; i++ {
+		fmt.Printf("    %d. %s (last modified: %s)\n", i+1, matchingTags[i].Name, matchingTags[i].LastModified)
+	}
+
+	mostRecent := &matchingTags[0]
+	fmt.Printf("  Selected tag: %s (last modified: %s)\n", mostRecent.Name, mostRecent.LastModified)
 	return mostRecent.ManifestDigest, nil
 }
 
 // getTags fetches all tags from all pages for the specified repository
 func (c *QuayClient) getTags(repository string) ([]QuayTag, error) {
 	var allTags []QuayTag
-	maxPages := 5
+	page := 1
+	maxSafetyPages := 100 // Safety limit to prevent infinite loops
 
-	for page := range maxPages {
+	for page <= maxSafetyPages {
 		url := fmt.Sprintf("%s/repository/%s/tag?page=%d", c.baseURL, repository, page)
 
 		resp, err := c.httpClient.Get(url)
@@ -171,9 +181,19 @@ func (c *QuayClient) getTags(repository string) ([]QuayTag, error) {
 		if !tagsResp.HasAdditional {
 			break
 		}
+
+		page++
 	}
 
-	fmt.Printf("  Fetched %d tags across %d pages\n", len(allTags))
+	if page > maxSafetyPages {
+		fmt.Printf("  Warning: Hit safety limit of %d pages, some tags may not be fetched\n", maxSafetyPages)
+	}
+
+	actualPages := page - 1
+	if actualPages == 0 {
+		actualPages = 1 // At least one page was fetched
+	}
+	fmt.Printf("  Fetched %d tags across %d pages\n", len(allTags), actualPages)
 	return allTags, nil
 }
 
@@ -198,4 +218,38 @@ func isMetadataTag(name string) bool {
 	return strings.HasSuffix(name, ".sig") ||
 		strings.HasSuffix(name, ".att") ||
 		strings.HasSuffix(name, ".sbom")
+}
+
+// compareTimestamps compares two timestamp strings, returning true if the first is newer
+// Falls back to string comparison if parsing fails
+func (c *QuayClient) compareTimestamps(timestamp1, timestamp2 string) bool {
+	// Quay.io uses RFC1123 format: "Wed, 25 Dec 2024 14:43:12 -0000"
+	time1, err1 := time.Parse(time.RFC1123Z, timestamp1)
+	time2, err2 := time.Parse(time.RFC1123Z, timestamp2)
+
+	// If both parsed successfully, compare times
+	if err1 == nil && err2 == nil {
+		return time1.After(time2)
+	}
+
+	// Try alternative formats if RFC1123Z fails
+	formats := []string{
+		time.RFC1123,
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05Z",
+		"2006-01-02T15:04:05.000Z",
+		"2006-01-02 15:04:05",
+	}
+
+	for _, format := range formats {
+		time1, err1 := time.Parse(format, timestamp1)
+		time2, err2 := time.Parse(format, timestamp2)
+		if err1 == nil && err2 == nil {
+			return time1.After(time2)
+		}
+	}
+
+	// Fall back to string comparison (works for ISO 8601 formatted strings)
+	return timestamp1 > timestamp2
 }

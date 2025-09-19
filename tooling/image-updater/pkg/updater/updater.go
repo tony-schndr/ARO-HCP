@@ -27,13 +27,21 @@ import (
 type Updater struct {
 	dryRun     bool
 	quayClient *clients.QuayClient
+	acrClient  *clients.ACRClient
 }
 
 // New creates a new image updater
 func New(dryRun bool) *Updater {
+	acrClient, err := clients.NewACRClient("arohcpsvcdev.azurecr.io")
+	if err != nil {
+		// For now, we'll handle this gracefully - ACR client creation might fail if not authenticated
+		acrClient = nil
+	}
+
 	return &Updater{
 		dryRun:     dryRun,
 		quayClient: clients.NewQuayClient(),
+		acrClient:  acrClient,
 	}
 }
 
@@ -104,11 +112,22 @@ func (u *Updater) updateImage(name string, latestDigest string, target config.Ta
 	return nil
 }
 
+// getACRDigest handles ACR registry digest retrieval
+func (u *Updater) getACRDigest(source config.Source) (string, error) {
+	if u.acrClient == nil {
+		return "", fmt.Errorf("ACR client not initialized - authentication may have failed")
+	}
+
+	return u.acrClient.GetLatestDigest(source.Repository)
+}
+
 // fetchLatestDigest retrieves the latest digest from the appropriate registry
 func (u *Updater) fetchLatestDigest(source config.Source) (string, error) {
 	switch {
 	case strings.Contains(source.Registry, "quay.io"):
 		return u.quayClient.GetLatestDigest(source.Repository, source.TagPattern)
+	case strings.Contains(source.Registry, "azurecr.io"):
+		return u.getACRDigest(source)
 	default:
 		return "", fmt.Errorf("unsupported registry: %s", source.Registry)
 	}

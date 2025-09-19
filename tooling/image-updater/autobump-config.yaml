@@ -1,0 +1,36 @@
+# Autobump Configuration Example
+# This file configures the prow generic-autobumper for automating PR creation
+# GitHub repository settings
+gitHubOrg: "tony-schndr"
+gitHubRepo: "ARO-HCP"
+gitHubBaseBranch: "main" # Base branch for PRs (optional, will auto-detect if not specified)
+# GitHub authentication
+gitHubLogin: "tony-schndr" # GitHub username for commits/PRs
+gitHubToken: "/Users/tschneid/devel/token.txt" # Path to file containing GitHub token
+# Git commit settings
+gitName: "ARO HCP Bot"
+gitEmail: "aro-hcp-bot@microsoft.com"
+# Remote repository settings
+remoteName: "ARO-HCP" # Name of the fork (should match the repo name)
+headBranchName: "autobump-images" # Branch name for the PR
+# PR Labels (optional)
+labels:
+- "automated"
+- "image-update"
+# Oncall assignment (optional)
+# onCallAddress: "https://example.com/oncall.json"
+# onCallGroup: "aro-hcp"
+skipOncallAssignment: true # Set to false to enable oncall assignment
+selfAssign: false # Set to true to self-assign the PR
+# Commit signing (optional)
+signoff: false # Set to true to add Signed-off-by line to commits
+# Testing/debugging
+skipPullRequest: false # Set to true to skip PR creation (for testing)
+# Additional PR body content (optional)
+additionalPRBody: |
+  ## Testing
+
+  Please verify the following before merging:
+  - [ ] Image digests are valid
+  - [ ] Configuration files are correctly updated
+  - [ ] No breaking changes in new image versions

@@ -104,15 +104,18 @@ func (c *ACRClient) getAllTags(ctx context.Context, repository string) ([]ACRTag
 	pager := c.client.NewListTagsPager(repository, nil)
 
 	pageCount := 0
+	milestones := []int{100, 500, 1000, 5000, 10000}
+	milestoneIndex := 0
+
 	for pager.More() {
 		pageCount++
-		page, err := pager.NextPage(ctx)
+		pageResp, err := pager.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get ACR tags page %d: %w", pageCount, err)
 		}
 
 		// Process each tag in the page
-		for _, tagAttributes := range page.Tags {
+		for _, tagAttributes := range pageResp.Tags {
 			if tagAttributes.Name == nil {
 				continue
 			}
@@ -129,7 +132,7 @@ func (c *ACRClient) getAllTags(ctx context.Context, repository string) ([]ACRTag
 			// Get timestamp from tag properties
 			tagProps, err := c.client.GetTagProperties(ctx, repository, *tagAttributes.Name, nil)
 			if err != nil {
-				fmt.Printf("    Warning: Could not get tag properties for %s: %v\n", *tagAttributes.Name, err)
+				fmt.Printf("  Warning: Could not get tag properties for %s: %v\n", *tagAttributes.Name, err)
 				tag.LastModified = time.Time{}
 			} else {
 				// Use CreatedOn timestamp from the tag properties
@@ -142,8 +145,14 @@ func (c *ACRClient) getAllTags(ctx context.Context, repository string) ([]ACRTag
 
 			allTags = append(allTags, tag)
 		}
+
+		// Report progress at milestones
+		if milestoneIndex < len(milestones) && pageCount >= milestones[milestoneIndex] {
+			fmt.Printf("  Processed %d pages, fetched %d tags so far\n", pageCount, len(allTags))
+			milestoneIndex++
+		}
 	}
 
-	fmt.Printf("  Fetched %d tags from %d pages\n", len(allTags), pageCount)
+	fmt.Printf("  Fetched %d tags across %d pages\n", len(allTags), pageCount)
 	return allTags, nil
 }

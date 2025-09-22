@@ -46,8 +46,9 @@ Use --dry-run to see what changes would be made without actually updating files.
 	cmd.Flags().StringVar(&opts.configPath, "config", "", "Path to image-updater configuration file")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Show what would be updated without making changes")
 
-	cmd.MarkFlagRequired("config")
-	cmd.MarkFlagRequired("target-file")
+	if err := cmd.MarkFlagRequired("config"); err != nil {
+		return nil
+	}
 
 	return cmd
 }

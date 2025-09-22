@@ -55,40 +55,46 @@ type QuayTagsResponse struct {
 }
 
 func (c *QuayClient) GetLatestDigest(repository string, tagPattern string) (string, error) {
-	fmt.Printf("  Using tag pattern: %s\n", tagPattern)
+	tag, err := c.tryGetLatestTag(repository)
+	if err != nil {
+		return "", err
+	} else if tag != "" {
+		return tag, nil
+	}
+	fmt.Printf("  Latest tag not found, trying to find tag matching pattern %s\n", tagPattern)
 	return c.getDigestByTagPattern(repository, tagPattern)
 }
 
 // tryGetLatestTag efficiently checks for a "latest" tag without full pagination
-func (c *QuayClient) tryGetLatestTag(repository string) (string, bool, error) {
+func (c *QuayClient) tryGetLatestTag(repository string) (string, error) {
 	url := fmt.Sprintf("%s/repository/%s/tag?page=1", c.baseURL, repository)
 
 	resp, err := c.httpClient.Get(url)
 	if err != nil {
-		return "", false, fmt.Errorf("failed to request Quay.io API: %w", err)
+		return "", fmt.Errorf("failed to request Quay.io API: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", false, fmt.Errorf("Quay.io API returned status %d for repository %s", resp.StatusCode, repository)
+		return "", fmt.Errorf("Quay.io API returned status %d for repository %s", resp.StatusCode, repository)
 	}
 
 	var tagsResp QuayTagsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tagsResp); err != nil {
-		return "", false, fmt.Errorf("failed to decode Quay.io API response: %w", err)
+		return "", fmt.Errorf("failed to decode Quay.io API response: %w", err)
 	}
 
 	// Look for the "latest" tag in the first page
 	for _, tag := range tagsResp.Tags {
 		if tag.Name == "latest" {
 			if tag.ManifestDigest == "" {
-				return "", false, fmt.Errorf("latest tag found but no manifest digest available for repository %s", repository)
+				return "", fmt.Errorf("latest tag found but no manifest digest available for repository %s", repository)
 			}
-			return tag.ManifestDigest, true, nil
+			return tag.ManifestDigest, nil
 		}
 	}
 
-	return "", false, nil // "latest" tag not found
+	return "", nil // "latest" tag not found
 }
 
 // getDigestByTagPattern fetches the latest digest for tags matching the given regex pattern
@@ -100,7 +106,7 @@ func (c *QuayClient) getDigestByTagPattern(repository string, tagPattern string)
 	}
 
 	// Get all tags and filter by pattern
-	tags, err := c.getTags(repository)
+	tags, err := c.getAllTags(repository)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch all tags: %w", err)
 	}
@@ -148,23 +154,24 @@ func (c *QuayClient) getDigestByTagPattern(repository string, tagPattern string)
 	return mostRecent.ManifestDigest, nil
 }
 
-// getTags fetches all tags from all pages for the specified repository
-func (c *QuayClient) getTags(repository string) ([]QuayTag, error) {
+// getAllTags fetches all tags from all pages for the specified repository
+func (c *QuayClient) getAllTags(repository string) ([]QuayTag, error) {
 	var allTags []QuayTag
 	page := 1
-	maxSafetyPages := 100 // Safety limit to prevent infinite loops
+	milestones := []int{100, 500, 1000, 5000, 10000}
+	milestoneIndex := 0
 
-	for page <= maxSafetyPages {
+	for {
 		url := fmt.Sprintf("%s/repository/%s/tag?page=%d", c.baseURL, repository, page)
 
 		resp, err := c.httpClient.Get(url)
 		if err != nil {
-			return nil, fmt.Errorf("failed to request Quay.io API (page %d): %w", page, err)
+			return nil, fmt.Errorf("failed to request Quay.io API page %d: %w", page, err)
 		}
 
 		if resp.StatusCode != http.StatusOK {
 			resp.Body.Close()
-			return nil, fmt.Errorf("quay.io API returned status %d for repository %s (page %d)", resp.StatusCode, repository, page)
+			return nil, fmt.Errorf("Quay.io API returned status %d for repository %s (page %d)", resp.StatusCode, repository, page)
 		}
 
 		var tagsResp QuayTagsResponse
@@ -177,6 +184,12 @@ func (c *QuayClient) getTags(repository string) ([]QuayTag, error) {
 		// Add tags from this page
 		allTags = append(allTags, tagsResp.Tags...)
 
+		// Report progress at milestones
+		if milestoneIndex < len(milestones) && page >= milestones[milestoneIndex] {
+			fmt.Printf("  Processed %d pages, fetched %d tags so far\n", page, len(allTags))
+			milestoneIndex++
+		}
+
 		// Check if there are more pages
 		if !tagsResp.HasAdditional {
 			break
@@ -185,15 +198,7 @@ func (c *QuayClient) getTags(repository string) ([]QuayTag, error) {
 		page++
 	}
 
-	if page > maxSafetyPages {
-		fmt.Printf("  Warning: Hit safety limit of %d pages, some tags may not be fetched\n", maxSafetyPages)
-	}
-
-	actualPages := page - 1
-	if actualPages == 0 {
-		actualPages = 1 // At least one page was fetched
-	}
-	fmt.Printf("  Fetched %d tags across %d pages\n", len(allTags), actualPages)
+	fmt.Printf("  Fetched %d tags across %d pages\n", len(allTags), page)
 	return allTags, nil
 }
 

@@ -52,8 +52,6 @@ func (u *Updater) UpdateImages(cfg *config.Config) error {
 		if err != nil {
 			return fmt.Errorf("failed to fetch latest digest: %w", err)
 		}
-		fmt.Printf("Digest: %s\n", digest)
-		fmt.Printf("Targets: %s\n", imageConfig.Targets)
 		for _, target := range imageConfig.Targets {
 			if err := u.updateImage(name, digest, target); err != nil {
 				return fmt.Errorf("failed to update image %s: %w", name, err)

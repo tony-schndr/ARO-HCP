@@ -20,7 +20,6 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -61,7 +60,6 @@ func (c *QuayClient) GetLatestDigest(repository string, tagPattern string) (stri
 	} else if tag != "" {
 		return tag, nil
 	}
-	fmt.Printf("  Latest tag not found, trying to find tag matching pattern %s\n", tagPattern)
 	return c.getDigestByTagPattern(repository, tagPattern)
 }
 
@@ -76,7 +74,7 @@ func (c *QuayClient) tryGetLatestTag(repository string) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Quay.io API returned status %d for repository %s", resp.StatusCode, repository)
+		return "", fmt.Errorf("quay.io API returned status %d for repository %s", resp.StatusCode, repository)
 	}
 
 	var tagsResp QuayTagsResponse
@@ -131,8 +129,6 @@ func (c *QuayClient) getDigestByTagPattern(repository string, tagPattern string)
 		matchingTags = append(matchingTags, tag)
 	}
 
-	fmt.Printf("  Found %d tags matching pattern\n", len(matchingTags))
-
 	if len(matchingTags) == 0 {
 		return "", fmt.Errorf("no tags matching pattern %s found for repository %s", tagPattern, repository)
 	}
@@ -143,14 +139,7 @@ func (c *QuayClient) getDigestByTagPattern(repository string, tagPattern string)
 		return c.compareTimestamps(matchingTags[i].LastModified, matchingTags[j].LastModified)
 	})
 
-	// Debug: show top 5 tags after sorting
-	fmt.Printf("  Top 5 tags after sorting by last modified:\n")
-	for i := 0; i < len(matchingTags) && i < 5; i++ {
-		fmt.Printf("    %d. %s (last modified: %s)\n", i+1, matchingTags[i].Name, matchingTags[i].LastModified)
-	}
-
 	mostRecent := &matchingTags[0]
-	fmt.Printf("  Selected tag: %s (last modified: %s)\n", mostRecent.Name, mostRecent.LastModified)
 	return mostRecent.ManifestDigest, nil
 }
 
@@ -158,8 +147,6 @@ func (c *QuayClient) getDigestByTagPattern(repository string, tagPattern string)
 func (c *QuayClient) getAllTags(repository string) ([]QuayTag, error) {
 	var allTags []QuayTag
 	page := 1
-	milestones := []int{100, 500, 1000, 5000, 10000}
-	milestoneIndex := 0
 
 	for {
 		url := fmt.Sprintf("%s/repository/%s/tag?page=%d", c.baseURL, repository, page)
@@ -171,7 +158,7 @@ func (c *QuayClient) getAllTags(repository string) ([]QuayTag, error) {
 
 		if resp.StatusCode != http.StatusOK {
 			resp.Body.Close()
-			return nil, fmt.Errorf("Quay.io API returned status %d for repository %s (page %d)", resp.StatusCode, repository, page)
+			return nil, fmt.Errorf("quay.io API returned status %d for repository %s (page %d)", resp.StatusCode, repository, page)
 		}
 
 		var tagsResp QuayTagsResponse
@@ -184,12 +171,6 @@ func (c *QuayClient) getAllTags(repository string) ([]QuayTag, error) {
 		// Add tags from this page
 		allTags = append(allTags, tagsResp.Tags...)
 
-		// Report progress at milestones
-		if milestoneIndex < len(milestones) && page >= milestones[milestoneIndex] {
-			fmt.Printf("  Processed %d pages, fetched %d tags so far\n", page, len(allTags))
-			milestoneIndex++
-		}
-
 		// Check if there are more pages
 		if !tagsResp.HasAdditional {
 			break
@@ -198,31 +179,7 @@ func (c *QuayClient) getAllTags(repository string) ([]QuayTag, error) {
 		page++
 	}
 
-	fmt.Printf("  Fetched %d tags across %d pages\n", len(allTags), page)
 	return allTags, nil
-}
-
-// isTemporaryTag checks if a tag name looks temporary or ephemeral
-func isTemporaryTag(name string) bool {
-	// Skip PR-related tags and build container tags
-	if strings.Contains(name, "on-pr-") || strings.Contains(name, "build-container") {
-		return true
-	}
-	return false
-}
-
-// hasExpiration checks if a tag has an expiration time
-func hasExpiration(_ QuayTag) bool {
-	// In the JSON response, expired tags or tags with expiration might have specific fields
-	// For now, we'll consider tags temporary if they have very recent timestamps and might expire
-	return false // We'd need to parse the actual expiration field if it exists
-}
-
-// isMetadataTag checks if a tag is for signatures, attestations, or SBOMs
-func isMetadataTag(name string) bool {
-	return strings.HasSuffix(name, ".sig") ||
-		strings.HasSuffix(name, ".att") ||
-		strings.HasSuffix(name, ".sbom")
 }
 
 // compareTimestamps compares two timestamp strings, returning true if the first is newer

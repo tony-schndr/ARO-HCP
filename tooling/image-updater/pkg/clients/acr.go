@@ -59,7 +59,6 @@ type ACRTag struct {
 
 // GetLatestDigest gets the most recent tag's digest from ACR by fetching all tags and sorting by timestamp
 func (c *ACRClient) GetLatestDigest(repository string) (string, error) {
-	fmt.Printf("  Getting latest tag by time from ACR (fetching all tags)\n")
 
 	ctx := context.Background()
 
@@ -92,7 +91,6 @@ func (c *ACRClient) GetLatestDigest(repository string) (string, error) {
 	})
 
 	mostRecent := validTags[0]
-	fmt.Printf("  Selected latest tag: %s (timestamp: %s)\n", mostRecent.Name, mostRecent.LastModified.Format(time.RFC3339))
 	return mostRecent.Digest, nil
 }
 
@@ -104,8 +102,6 @@ func (c *ACRClient) getAllTags(ctx context.Context, repository string) ([]ACRTag
 	pager := c.client.NewListTagsPager(repository, nil)
 
 	pageCount := 0
-	milestones := []int{100, 500, 1000, 5000, 10000}
-	milestoneIndex := 0
 
 	for pager.More() {
 		pageCount++
@@ -146,13 +142,7 @@ func (c *ACRClient) getAllTags(ctx context.Context, repository string) ([]ACRTag
 			allTags = append(allTags, tag)
 		}
 
-		// Report progress at milestones
-		if milestoneIndex < len(milestones) && pageCount >= milestones[milestoneIndex] {
-			fmt.Printf("  Processed %d pages, fetched %d tags so far\n", pageCount, len(allTags))
-			milestoneIndex++
-		}
 	}
 
-	fmt.Printf("  Fetched %d tags across %d pages\n", len(allTags), pageCount)
 	return allTags, nil
 }

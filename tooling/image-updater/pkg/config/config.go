@@ -17,6 +17,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -34,8 +35,7 @@ type ImageConfig struct {
 
 // Source defines where to fetch the latest image digest from
 type Source struct {
-	Registry   string `yaml:"registry"`
-	Repository string `yaml:"repository"`
+	Image      string `yaml:"image"`
 	TagPattern string `yaml:"tagPattern,omitempty"`
 }
 
@@ -43,6 +43,43 @@ type Source struct {
 type Target struct {
 	JsonPath string `yaml:"jsonPath"`
 	FilePath string `yaml:"filePath"`
+}
+
+// ParseImageReference splits an image reference into registry and repository parts
+func (s *Source) ParseImageReference() (registry, repository string, err error) {
+	if s.Image == "" {
+		return "", "", fmt.Errorf("image reference is empty")
+	}
+
+	// Split on the first '/' to separate registry from repository
+	parts := strings.SplitN(s.Image, "/", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid image reference %q: must be in format registry/repository", s.Image)
+	}
+
+	registry = parts[0]
+	repository = parts[1]
+
+	if registry == "" {
+		return "", "", fmt.Errorf("invalid image reference %q: registry part is empty", s.Image)
+	}
+	if repository == "" {
+		return "", "", fmt.Errorf("invalid image reference %q: repository part is empty", s.Image)
+	}
+
+	return registry, repository, nil
+}
+
+// Registry returns the registry part of the image reference
+func (s *Source) Registry() (string, error) {
+	registry, _, err := s.ParseImageReference()
+	return registry, err
+}
+
+// Repository returns the repository part of the image reference
+func (s *Source) Repository() (string, error) {
+	_, repository, err := s.ParseImageReference()
+	return repository, err
 }
 
 // Load reads and parses the configuration file
@@ -72,11 +109,12 @@ func (c *Config) validate() error {
 	}
 
 	for name, img := range c.Images {
-		if img.Source.Registry == "" {
-			return fmt.Errorf("image %s: source registry is required", name)
+		if img.Source.Image == "" {
+			return fmt.Errorf("image %s: source image is required", name)
 		}
-		if img.Source.Repository == "" {
-			return fmt.Errorf("image %s: source repository is required", name)
+		// Validate that the image reference can be parsed
+		if _, _, err := img.Source.ParseImageReference(); err != nil {
+			return fmt.Errorf("image %s: %w", name, err)
 		}
 		for _, target := range img.Targets {
 			if target.JsonPath == "" {

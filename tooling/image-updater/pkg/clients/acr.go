@@ -26,8 +26,7 @@ import (
 
 // ACRClient provides methods to interact with Azure Container Registry
 type ACRClient struct {
-	client  *azcontainerregistry.Client
-	baseURL string
+	client *azcontainerregistry.Client
 }
 
 // NewACRClient creates a new Azure Container Registry client
@@ -45,8 +44,7 @@ func NewACRClient(registryURL string) (*ACRClient, error) {
 	}
 
 	return &ACRClient{
-		client:  client,
-		baseURL: registryURL,
+		client: client,
 	}, nil
 }
 

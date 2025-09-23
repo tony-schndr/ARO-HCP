@@ -1,8 +1,7 @@
 images:
   maestro:
     source:
-      registry: quay.io
-      repository: redhat-user-workloads/maestro-rhtap-tenant/maestro/maestro
+      image: quay.io/redhat-user-workloads/maestro-rhtap-tenant/maestro/maestro
       tagPattern: "^[a-f0-9]{40}$"
     targets:
     - jsonPath: clouds.public.environments.int.defaults.maestro.image.digest
@@ -11,8 +10,7 @@ images:
       filePath: ../../config/config.yaml
   hypershift:
     source:
-      registry: quay.io
-      repository: acm-d/rhtap-hypershift-operator
+      image: quay.io/acm-d/rhtap-hypershift-operator
       tagPattern: "^latest$"
     targets:
     - jsonPath: clouds.public.environments.int.defaults.hypershift.image.digest
@@ -21,8 +19,7 @@ images:
       filePath: ../../config/config.yaml
   pko-package:
     source:
-      registry: quay.io
-      repository: package-operator/package-operator-package
+      image: quay.io/package-operator/package-operator-package
       tagPattern: "^v\\d+\\.\\d+\\.\\d+$"
     targets:
     - jsonPath: clouds.public.environments.int.defaults.pko.imagePackage.digest
@@ -31,8 +28,7 @@ images:
       filePath: ../../config/config.yaml
   pko-manager:
     source:
-      registry: quay.io
-      repository: package-operator/package-operator-manager
+      image: quay.io/package-operator/package-operator-manager
       tagPattern: "^v\\d+\\.\\d+\\.\\d+$"
     targets:
     - jsonPath: clouds.public.environments.int.defaults.pko.imageManager.digest
@@ -41,8 +37,7 @@ images:
       filePath: ../../config/config.yaml
   pko-remote-phase-manager:
     source:
-      registry: quay.io
-      repository: package-operator/remote-phase-manager
+      image: quay.io/package-operator/remote-phase-manager
       tagPattern: "^v\\d+\\.\\d+\\.\\d+$"
     targets:
     - jsonPath: clouds.public.environments.int.defaults.pko.remotePhaseManager.digest
@@ -51,15 +46,13 @@ images:
       filePath: ../../config/config.yaml
   arohcpfrontend:
     source:
-      registry: arohcpsvcdev.azurecr.io
-      repository: arohcpfrontend
+      image: arohcpsvcdev.azurecr.io/arohcpfrontend
     targets:
     - jsonPath: clouds.public.environments.int.defaults.frontend.image.digest
       filePath: ../../config/config.msft.clouds-overlay.yaml
   arohcpbackend:
     source:
-      registry: arohcpsvcdev.azurecr.io
-      repository: arohcpbackend
+      image: arohcpsvcdev.azurecr.io/arohcpbackend
     targets:
     - jsonPath: clouds.public.environments.int.defaults.backend.image.digest
       filePath: ../../config/config.msft.clouds-overlay.yaml

@@ -116,17 +116,32 @@ func (u *Updater) getACRDigest(source config.Source) (string, error) {
 		return "", fmt.Errorf("ACR client not initialized - authentication may have failed")
 	}
 
-	return u.acrClient.GetLatestDigest(source.Repository)
+	repository, err := source.Repository()
+	if err != nil {
+		return "", fmt.Errorf("failed to parse repository from image reference: %w", err)
+	}
+
+	return u.acrClient.GetLatestDigest(repository)
 }
 
 // fetchLatestDigest retrieves the latest digest from the appropriate registry
 func (u *Updater) fetchLatestDigest(source config.Source) (string, error) {
+	registry, err := source.Registry()
+	if err != nil {
+		return "", fmt.Errorf("failed to parse registry from image reference: %w", err)
+	}
+
+	repository, err := source.Repository()
+	if err != nil {
+		return "", fmt.Errorf("failed to parse repository from image reference: %w", err)
+	}
+
 	switch {
-	case strings.Contains(source.Registry, "quay.io"):
-		return u.quayClient.GetLatestDigest(source.Repository, source.TagPattern)
-	case strings.Contains(source.Registry, "azurecr.io"):
+	case strings.Contains(registry, "quay.io"):
+		return u.quayClient.GetLatestDigest(repository, source.TagPattern)
+	case strings.Contains(registry, "azurecr.io"):
 		return u.getACRDigest(source)
 	default:
-		return "", fmt.Errorf("unsupported registry: %s", source.Registry)
+		return "", fmt.Errorf("unsupported registry: %s", registry)
 	}
 }

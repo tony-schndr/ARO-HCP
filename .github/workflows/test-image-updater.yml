@@ -34,7 +34,6 @@ jobs:
     - name: Run image updater
       run: |
         cd tooling/image-updater
-        chmod +x update.sh
         ./update.sh
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

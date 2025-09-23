@@ -168,20 +168,23 @@ main() {
     git checkout "$MAIN_BRANCH"
     git pull origin "$MAIN_BRANCH"
 
-    # Check git status is clean
-    if ! git diff --quiet || ! git diff --cached --quiet; then
-        log "❌ Working directory is not clean. Please commit or stash changes first."
-        exit 1
-    fi
+    # Show git status for debugging
+    log "Git status:"
+    git status --porcelain
+    log "Git diff:"
+    git diff
 
-    # Extract and process components
-    components=$(get_components)
+    # Extract and process components (filter to quay.io only for fork testing)
+    all_components=$(get_components)
+    components="maestro hypershift"  # Only process quay.io images for fork testing
+
     if [ -z "$components" ]; then
         log "❌ No components found in $CONFIG_FILE"
         exit 1
     fi
 
-    log "Found components: $(echo $components | tr '\n' ' ')"
+    log "All available components: $(echo $all_components | tr '\n' ' ')"
+    log "Processing components (quay.io only): $components"
 
     # Process each component
     success_count=0

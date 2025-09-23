@@ -15,11 +15,16 @@ get_components() {
     awk '/^images:/{flag=1;next} /^[^ ]/{flag=0} flag && /^  [a-zA-Z]/{print $1}' "$CONFIG_FILE" | sed 's/://'
 }
 
-# Check if PR exists for component and get its number
-get_existing_pr() {
+# Get all open PRs for a component (any digest suffix)
+get_component_prs() {
     local component="$1"
-    local branch="auto-update-${component}"
-    gh pr list --head "$branch" --state open --json number --jq '.[0].number' 2>/dev/null || echo ""
+    gh pr list --state open --json number,headRefName --jq '.[] | select(.headRefName | startswith("auto-update-'$component'-")) | {number: .number, branch: .headRefName}' 2>/dev/null || echo ""
+}
+
+# Extract digest hash from latest image
+get_digest_hash() {
+    local digest="$1"
+    echo "$digest" | grep -o 'sha256:[a-f0-9]\{64\}' | cut -d: -f2 | cut -c1-7 || echo ""
 }
 
 # Get the diff from an existing PR
@@ -40,23 +45,19 @@ close_pr() {
 # Update a single component
 update_component() {
     local component="$1"
-    local branch="auto-update-${component}"
 
     log "Processing component: $component"
 
-    # Check for existing PR
-    local existing_pr
-    existing_pr=$(get_existing_pr "$component")
-
-    # Create/switch to branch (force recreate if exists)
+    # Create temporary branch for checking changes
+    local temp_branch="temp-update-${component}-$$"
     git checkout "$MAIN_BRANCH"
-    git branch -D "$branch" 2>/dev/null || true
-    git checkout -b "$branch"
+    git checkout -b "$temp_branch"
 
     # Run image updater for this component only
     if ! ./image-updater update --config "$CONFIG_FILE" --component "$component"; then
         log "❌ Image updater failed for $component"
         git checkout "$MAIN_BRANCH"
+        git branch -D "$temp_branch" 2>/dev/null || true
         return 1
     fi
 
@@ -65,6 +66,7 @@ update_component() {
     (cd ../.. && make yamlfmt) || {
         log "❌ yamlfmt failed for $component"
         git checkout "$MAIN_BRANCH"
+        git branch -D "$temp_branch" 2>/dev/null || true
         return 1
     }
 
@@ -72,39 +74,71 @@ update_component() {
     if git diff --quiet; then
         log "No changes detected for $component, skipping"
         git checkout "$MAIN_BRANCH"
+        git branch -D "$temp_branch" 2>/dev/null || true
         return 0
     fi
 
-    # Get current diff for comparison
-    local current_diff
-    current_diff=$(git diff)
+    # Extract the new digest from the changes
+    local new_digest
+    new_digest=$(git diff | grep "^+.*digest:" | head -1 | sed 's/^+.*digest: *//g' | tr -d '"' || echo "")
 
-    # If existing PR exists, compare changes
-    if [ -n "$existing_pr" ]; then
-        log "Found existing PR #$existing_pr for $component"
+    if [ -z "$new_digest" ]; then
+        log "❌ Could not extract digest from changes for $component"
+        git checkout "$MAIN_BRANCH"
+        git branch -D "$temp_branch" 2>/dev/null || true
+        return 1
+    fi
 
-        local existing_diff
-        existing_diff=$(get_pr_diff "$existing_pr")
+    # Get digest hash for branch naming
+    local digest_hash
+    digest_hash=$(get_digest_hash "$new_digest")
 
-        # Compare diffs (normalize whitespace)
-        if [ "$(echo "$current_diff" | tr -d ' \t\n')" = "$(echo "$existing_diff" | tr -d ' \t\n')" ]; then
-            log "Changes are identical to existing PR #$existing_pr, skipping"
-            git checkout "$MAIN_BRANCH"
-            return 0
-        fi
+    if [ -z "$digest_hash" ]; then
+        log "❌ Could not extract hash from digest for $component"
+        git checkout "$MAIN_BRANCH"
+        git branch -D "$temp_branch" 2>/dev/null || true
+        return 1
+    fi
 
-        log "Changes differ from existing PR #$existing_pr, will replace it"
+    # Create the actual branch with digest suffix
+    local branch="auto-update-${component}-${digest_hash}"
+    log "Creating branch: $branch"
+
+    git checkout "$MAIN_BRANCH"
+    git branch -D "$branch" 2>/dev/null || true
+    git checkout -b "$branch"
+
+    # Apply the same changes to the real branch
+    git checkout "$temp_branch" -- .
+    git add -A
+
+    # Clean up temp branch
+    git branch -D "$temp_branch" 2>/dev/null || true
+
+    # Check if a PR with this exact digest already exists
+    local existing_prs
+    existing_prs=$(get_component_prs "$component")
+
+    local existing_branch_for_digest=""
+    if [ -n "$existing_prs" ]; then
+        existing_branch_for_digest=$(echo "$existing_prs" | jq -r --arg branch "$branch" 'select(.branch == $branch) | .number' 2>/dev/null | head -1 || echo "")
+    fi
+
+    if [ -n "$existing_branch_for_digest" ]; then
+        log "PR already exists for this exact digest (#$existing_branch_for_digest), skipping"
+        git checkout "$MAIN_BRANCH"
+        git branch -D "$branch" 2>/dev/null || true
+        return 0
     fi
 
     # Show what changed
     log "Changes detected:"
     git diff --stat
 
-    # Commit changes
-    git add -A
-    git commit -m "Update $component image digest
+    # Commit changes with digest hash
+    git commit -m "Update $component image digest to ${digest_hash}
 
-Automatically updated $component to latest image digest.
+Automatically updated $component to latest image digest: ${new_digest}
 
 🤖 Generated with [Claude Code](https://claude.ai/code)
 
@@ -113,14 +147,16 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
     # Push branch
     git push origin "$branch" --force-with-lease
 
-    # Create new PR
+    # Create new PR with digest hash in title
     local new_pr_url
     if new_pr_url=$(gh pr create \
-        --title "Update $component image digest" \
+        --title "Update $component image digest to ${digest_hash}" \
         --body "Automatically updated \`$component\` to the latest image digest from registry.
 
 **Changes:**
 - Updated image digest for $component component
+- New digest: \`${new_digest}\`
+- Short hash: \`${digest_hash}\`
 
 🤖 Generated with [Claude Code](https://claude.ai/code)" \
         --base "$MAIN_BRANCH" \
@@ -128,11 +164,16 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
         local new_pr_number
         new_pr_number=$(echo "$new_pr_url" | grep -o '[0-9]\+$')
-        log "✅ Created PR #$new_pr_number for $component"
+        log "✅ Created PR #$new_pr_number for $component (digest: ${digest_hash})"
 
-        # Close existing PR if it existed
-        if [ -n "$existing_pr" ]; then
-            close_pr "$existing_pr" "$new_pr_number" "$component"
+        # Close all other open PRs for this component
+        if [ -n "$existing_prs" ]; then
+            echo "$existing_prs" | jq -r '.number' 2>/dev/null | while read -r pr_number; do
+                if [ "$pr_number" != "$new_pr_number" ]; then
+                    log "Closing older PR #$pr_number for $component"
+                    close_pr "$pr_number" "$new_pr_number" "$component"
+                fi
+            done
         fi
     else
         log "❌ Failed to create PR for $component"

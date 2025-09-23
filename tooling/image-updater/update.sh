@@ -57,16 +57,12 @@ update_component() {
 
     log "Processing component: $component"
 
-    # Create temporary branch for checking changes
-    local temp_branch="temp-update-${component}-$$"
+    # Start from main branch
     git checkout "$MAIN_BRANCH"
-    git checkout -b "$temp_branch"
 
     # Run image updater for this component only
     if ! ./image-updater update --config "$CONFIG_FILE" --component "$component"; then
         log "❌ Image updater failed for $component"
-        git checkout "$MAIN_BRANCH"
-        git branch -D "$temp_branch" 2>/dev/null || true
         return 1
     fi
 
@@ -74,27 +70,22 @@ update_component() {
     log "Formatting configs with yamlfmt"
     (cd ../.. && make yamlfmt) || {
         log "❌ yamlfmt failed for $component"
-        git checkout "$MAIN_BRANCH"
-        git branch -D "$temp_branch" 2>/dev/null || true
         return 1
     }
 
     # Check if there are any changes to commit
     if git diff --quiet; then
         log "No changes detected for $component, skipping"
-        git checkout "$MAIN_BRANCH"
-        git branch -D "$temp_branch" 2>/dev/null || true
         return 0
     fi
 
-    # Extract the new digest from the changes
+    # Extract the new digest from the changes (before committing)
     local new_digest
     new_digest=$(git diff | grep "^+.*digest:" | head -1 | sed 's/^+.*digest: *//g' | tr -d '"' || echo "")
 
     if [ -z "$new_digest" ]; then
         log "❌ Could not extract digest from changes for $component"
-        git checkout "$MAIN_BRANCH"
-        git branch -D "$temp_branch" 2>/dev/null || true
+        git checkout .  # Reset changes
         return 1
     fi
 
@@ -104,25 +95,19 @@ update_component() {
 
     if [ -z "$digest_hash" ]; then
         log "❌ Could not extract hash from digest for $component"
-        git checkout "$MAIN_BRANCH"
-        git branch -D "$temp_branch" 2>/dev/null || true
+        git checkout .  # Reset changes
         return 1
     fi
 
-    # Create the actual branch with digest suffix
+    # Create the branch with digest suffix
     local branch="auto-update-${component}-${digest_hash}"
     log "Creating branch: $branch"
 
-    git checkout "$MAIN_BRANCH"
+    # Clean up any existing branch with same name
     git branch -D "$branch" 2>/dev/null || true
+
+    # Create the new branch (this will include our current changes)
     git checkout -b "$branch"
-
-    # Apply the same changes to the real branch
-    git checkout "$temp_branch" -- .
-    git add -A
-
-    # Clean up temp branch
-    git branch -D "$temp_branch" 2>/dev/null || true
 
     # Check if a PR with this exact digest already exists
     local existing_prs

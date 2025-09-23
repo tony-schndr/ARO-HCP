@@ -25,6 +25,7 @@ import (
 type updateOptions struct {
 	configPath string
 	dryRun     bool
+	component  string
 }
 
 func NewUpdateCommand() *cobra.Command {
@@ -45,6 +46,7 @@ Use --dry-run to see what changes would be made without actually updating files.
 
 	cmd.Flags().StringVar(&opts.configPath, "config", "", "Path to image-updater configuration file")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Show what would be updated without making changes")
+	cmd.Flags().StringVar(&opts.component, "component", "", "Update only the specified component (e.g., maestro). If not specified, all components will be updated")
 
 	if err := cmd.MarkFlagRequired("config"); err != nil {
 		return nil
@@ -57,6 +59,13 @@ func runUpdate(opts *updateOptions) error {
 	cfg, err := config.Load(opts.configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if opts.component != "" {
+		cfg, err = cfg.FilterByComponent(opts.component)
+		if err != nil {
+			return fmt.Errorf("failed to filter config by component: %w", err)
+		}
 	}
 
 	imageUpdater := updater.New(opts.dryRun)

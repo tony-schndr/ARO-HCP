@@ -69,7 +69,7 @@ clouds:
           # Maestro
           maestro:
             image:
-              digest: sha256:90daeea3b4191e3f02d9900a1e7d9e296329b3ca99ea785907c55c39cde95f04
+              digest: sha256:e4e07bc19d2f2cf924339860c4ef23909b20645f71b4ae8d546067772e194a18
           # OCP image sync
           imageSync:
             ocMirror:

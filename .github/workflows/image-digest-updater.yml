@@ -1,4 +1,4 @@
-name: Test Image Updater
+name: Image Digest Updater
 on:
   workflow_dispatch:
 permissions:

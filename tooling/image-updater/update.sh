@@ -5,6 +5,15 @@ set -euo pipefail
 CONFIG_FILE="config.yaml"
 MAIN_BRANCH="main"
 
+# GitHub Actions workflow URL for PR description
+if [ -n "${GITHUB_SERVER_URL:-}" ] && [ -n "${GITHUB_REPOSITORY:-}" ] && [ -n "${GITHUB_RUN_ID:-}" ]; then
+    WORKFLOW_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+    AUTOMATION_CREDIT="Automatically updated with [Image Digest Updater](${WORKFLOW_URL})"
+else
+    # Fallback for local runs or when GitHub env vars are not available
+    AUTOMATION_CREDIT="Automatically updated with Image Digest Updater"
+fi
+
 # Logging helper
 log() {
     echo "[$(date +'%H:%M:%S')] $1"
@@ -138,11 +147,7 @@ update_component() {
     # Commit changes with digest hash
     git commit -m "Update $component image digest to ${digest_hash}
 
-Automatically updated $component to latest image digest: ${new_digest}
-
-🤖 Generated with [Claude Code](https://claude.ai/code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
+Automatically updated $component to latest image digest: ${new_digest}"
 
     # Push branch
     git push origin "$branch" --force-with-lease
@@ -151,14 +156,11 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
     local new_pr_url
     if new_pr_url=$(gh pr create \
         --title "Update $component image digest to ${digest_hash}" \
-        --body "Automatically updated \`$component\` to the latest image digest from registry.
+        --body "${AUTOMATION_CREDIT}
 
 **Changes:**
 - Updated image digest for $component component
-- New digest: \`${new_digest}\`
-- Short hash: \`${digest_hash}\`
-
-🤖 Generated with [Claude Code](https://claude.ai/code)" \
+- New digest: \`${new_digest}\`" \
         --base "$MAIN_BRANCH" \
         --head "$branch" 2>/dev/null); then
 
@@ -208,12 +210,6 @@ main() {
     log "Syncing with $MAIN_BRANCH branch"
     git checkout "$MAIN_BRANCH"
     git pull origin "$MAIN_BRANCH"
-
-    # Show git status for debugging
-    log "Git status:"
-    git status --porcelain
-    log "Git diff:"
-    git diff
 
     # Extract and process components (filter to quay.io only for fork testing)
     all_components=$(get_components)

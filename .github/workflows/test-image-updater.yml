@@ -17,10 +17,11 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
+    - name: 'Set up Go'
+      uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
       with:
-        go-version-file: tooling/image-updater/go.mod
+        go-version-file: 'go.work'
+        check-latest: true
 
     - name: Configure Git
       run: |

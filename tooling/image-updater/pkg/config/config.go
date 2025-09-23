@@ -128,3 +128,21 @@ func (c *Config) validate() error {
 
 	return nil
 }
+
+// FilterByComponent returns a new Config containing only the specified component
+func (c *Config) FilterByComponent(componentName string) (*Config, error) {
+	if componentName == "" {
+		return c, nil
+	}
+
+	imageConfig, exists := c.Images[componentName]
+	if !exists {
+		return nil, fmt.Errorf("component %q not found in configuration", componentName)
+	}
+
+	return &Config{
+		Images: map[string]ImageConfig{
+			componentName: imageConfig,
+		},
+	}, nil
+}

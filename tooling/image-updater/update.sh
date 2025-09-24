@@ -121,12 +121,6 @@ bulk_update() {
         return 1
     fi
 
-    log "Formatting configs with yamlfmt"
-    if ! make -C ../.. yamlfmt; then
-        log "❌ yamlfmt failed"
-        return 1
-    fi
-
     log "Materializing configs"
     if ! make -C ../../config materialize; then
         log "❌ Config materialization failed"

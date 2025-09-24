@@ -1,9 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-# Configuration
-CONFIG_FILE="config.yaml"
-MAIN_BRANCH="main"
+# Default options
+CREATE_PR=true
 
 # GitHub Actions workflow URL for PR description
 if [ -n "${GITHUB_SERVER_URL:-}" ] && [ -n "${GITHUB_REPOSITORY:-}" ] && [ -n "${GITHUB_RUN_ID:-}" ]; then
@@ -14,220 +13,201 @@ else
     AUTOMATION_CREDIT="Automatically updated with Image Digest Updater"
 fi
 
-# Logging helper
 log() {
     echo "[$(date +'%H:%M:%S')] $1"
 }
 
-# Extract component names from the images section of config file
+usage() {
+    cat << EOF
+Usage: $0 [OPTIONS]
+
+Bulk update all component image digests and create a single PR.
+
+OPTIONS:
+    --no-pr     Skip PR creation (useful for local testing)
+    -h, --help  Show this help message
+
+EXAMPLES:
+    $0                  # Update all components and create PR
+    $0 --no-pr         # Update all components but don't create PR
+EOF
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --no-pr)
+                CREATE_PR=false
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                log "❌ Unknown option: $1"
+                usage
+                exit 1
+                ;;
+        esac
+    done
+}
+
 get_components() {
     awk '/^images:/{flag=1;next} /^[^ ]/{flag=0} flag && /^  [a-zA-Z]/{print $1}' "$CONFIG_FILE" | sed 's/://'
 }
 
-# Get all open PRs for a component (any digest suffix)
-get_component_prs() {
-    local component="$1"
-    gh pr list --state open --json number,headRefName --jq '.[] | select(.headRefName | startswith("auto-update-'$component'-")) | {number: .number, branch: .headRefName}' 2>/dev/null || echo ""
+get_auto_update_prs() {
+    gh pr list --state open --json number,headRefName --jq '.[] | select(.headRefName | startswith("auto-update")) | {number: .number, branch: .headRefName}' 2>/dev/null || echo ""
 }
 
-# Extract digest hash from latest image
-get_digest_hash() {
-    local digest="$1"
-    echo "$digest" | grep -o 'sha256:[a-f0-9]\{64\}' | cut -d: -f2 | cut -c1-7 || echo ""
-}
-
-# Get the diff from an existing PR
-get_pr_diff() {
-    local pr_number="$1"
-    gh pr diff "$pr_number" 2>/dev/null || echo ""
-}
-
-# Close an existing PR in favor of a new one
-close_pr() {
-    local old_pr_number="$1"
-    local new_pr_number="$2"
-    local component="$3"
-    log "Closing existing PR #$old_pr_number for $component in favor of #$new_pr_number"
-    gh pr close "$old_pr_number" --comment "Closing in favor of #$new_pr_number"
-}
-
-# Update a single component
-update_component() {
-    local component="$1"
-
-    log "Processing component: $component"
-
-    # Start from main branch
-    git checkout "$MAIN_BRANCH"
-
-    # Run image updater for this component only
-    if ! ./image-updater update --config "$CONFIG_FILE" --component "$component"; then
-        log "❌ Image updater failed for $component"
-        return 1
-    fi
-
-    # Format configs using project's yamlfmt
-    log "Formatting configs with yamlfmt"
-    (cd ../.. && make yamlfmt) || {
-        log "❌ yamlfmt failed for $component"
-        return 1
-    }
-
-    # Check if there are any changes to commit
-    if git diff --quiet; then
-        log "No changes detected for $component, skipping"
-        return 0
-    fi
-    make -C ../../config materialize
-    # Extract the new digest from the changes (before committing)
-    local new_digest
-    new_digest=$(git diff | grep "^+.*digest:" | head -1 | sed 's/^+.*digest: *//g' | tr -d '"' || echo "")
-
-    if [ -z "$new_digest" ]; then
-        log "❌ Could not extract digest from changes for $component"
-        git checkout .  # Reset changes
-        return 1
-    fi
-
-    # Get digest hash for branch naming
-    local digest_hash
-    digest_hash=$(get_digest_hash "$new_digest")
-
-    if [ -z "$digest_hash" ]; then
-        log "❌ Could not extract hash from digest for $component"
-        git checkout .  # Reset changes
-        return 1
-    fi
-
-    # Create the branch with digest suffix
-    local branch="auto-update-${component}-${digest_hash}"
-    log "Creating branch: $branch"
-
-    # Clean up any existing branch with same name
-    git branch -D "$branch" 2>/dev/null || true
-
-    # Create the new branch (this will include our current changes)
-    git checkout -b "$branch"
-
-    # Check if a PR with this exact digest already exists
+close_existing_prs() {
+    local new_pr_number="$1"
     local existing_prs
-    existing_prs=$(get_component_prs "$component")
+    existing_prs=$(get_auto_update_prs)
 
-    local existing_branch_for_digest=""
     if [ -n "$existing_prs" ]; then
-        existing_branch_for_digest=$(echo "$existing_prs" | jq -r --arg branch "$branch" 'select(.branch == $branch) | .number' 2>/dev/null | head -1 || echo "")
+        echo "$existing_prs" | jq -r '.number' 2>/dev/null | while read -r pr_number; do
+            if [ "$pr_number" != "$new_pr_number" ]; then
+                log "Closing existing auto-update PR #$pr_number"
+                gh pr close "$pr_number" --comment "Superseded by PR #$new_pr_number"
+            fi
+        done
+    fi
+}
+
+get_digest_changes() {
+    local changes=""
+    local component
+
+    while IFS= read -r line; do
+        if [[ $line =~ ^\+.*digest:.*$ ]]; then
+            local digest=$(echo "$line" | sed 's/^+.*digest: *//g' | tr -d '"')
+            changes="${changes}- Updated image digest: \`${digest}\`\n"
+        fi
+    done < <(git diff --cached)
+
+    echo -e "$changes"
+}
+
+bulk_update() {
+    log "Starting bulk image digest update process"
+
+    cd "$(dirname "$0")"
+
+    log "Syncing with $MAIN_BRANCH branch"
+    git checkout "$MAIN_BRANCH"
+    git pull origin "$MAIN_BRANCH"
+
+    log "Running image updater for all components"
+    if ! make -C . update; then
+        log "❌ Image updater failed"
+        return 1
     fi
 
-    if [ -n "$existing_branch_for_digest" ]; then
-        log "PR already exists for this exact digest (#$existing_branch_for_digest), skipping"
-        git checkout "$MAIN_BRANCH"
-        git branch -D "$branch" 2>/dev/null || true
+    log "Formatting configs with yamlfmt"
+    if ! make -C ../.. yamlfmt; then
+        log "❌ yamlfmt failed"
+        return 1
+    fi
+
+    log "Materializing configs"
+    if ! make -C ../../config materialize; then
+        log "❌ Config materialization failed"
+        return 1
+    fi
+
+    if git diff --quiet; then
+        log "No changes detected, nothing to update"
         return 0
     fi
 
-    # Show what changed
     log "Changes detected:"
     git diff --stat
 
     git add --all
 
-    # Commit changes with digest hash
-    git commit -m "Update $component image digest to ${digest_hash}
+    if [ "$CREATE_PR" = true ]; then
+        local branch="auto-update-all-components-$(date +%Y%m%d)"
 
-Automatically updated $component to latest image digest: ${new_digest}"
+        log "Creating branch: $branch"
+        git checkout -b "$branch"
 
-    # Push branch
-    git push origin "$branch" --force-with-lease
+        local all_components
+        all_components=$(get_components | tr '\n' ' ')
 
-    # Create new PR with digest hash in title
-    local new_pr_url
-    if new_pr_url=$(gh pr create \
-        --title "Update $component image digest to ${digest_hash}" \
-        --body "${AUTOMATION_CREDIT}
+        local commit_msg="Update all component image digests
+
+$all_components
+
+$AUTOMATION_CREDIT"
+
+        git commit -m "$commit_msg"
+
+        git push origin "$branch" --force-with-lease
+
+        local digest_changes
+        digest_changes=$(get_digest_changes)
+
+        local pr_body="${AUTOMATION_CREDIT}
+
+**Component Image Digest Update**
+
+This PR updates image digests for components.
 
 **Changes:**
-- Updated image digest for $component component
-- New digest: \`${new_digest}\`" \
-        --base "$MAIN_BRANCH" \
-        --head "$branch" 2>/dev/null); then
+${digest_changes}
 
-        local new_pr_number
-        new_pr_number=$(echo "$new_pr_url" | grep -o '[0-9]\+$')
-        log "✅ Created PR #$new_pr_number for $component (digest: ${digest_hash})"
+**Components Updated:** $all_components"
 
-        # Close all other open PRs for this component
-        if [ -n "$existing_prs" ]; then
-            echo "$existing_prs" | jq -r '.number' 2>/dev/null | while read -r pr_number; do
-                if [ "$pr_number" != "$new_pr_number" ]; then
-                    log "Closing older PR #$pr_number for $component"
-                    close_pr "$pr_number" "$new_pr_number" "$component"
-                fi
-            done
+        local new_pr_url
+        if new_pr_url=$(gh pr create \
+            --title "Auto bump component image digests ($(date +'%Y-%m-%d %H:%M'))" \
+            --body "$pr_body" \
+            --base "$MAIN_BRANCH" \
+            --head "$branch" 2>/dev/null); then
+
+            local new_pr_number
+            new_pr_number=$(echo "$new_pr_url" | grep -o '[0-9]\+$')
+            log "✅ Created PR #$new_pr_number"
+
+            close_existing_prs "$new_pr_number"
+        else
+            log "❌ Failed to create PR"
+            git checkout "$MAIN_BRANCH"
+            return 1
         fi
-    else
-        log "❌ Failed to create PR for $component"
-        git checkout "$MAIN_BRANCH"
-        return 1
-    fi
 
-    # Return to main branch
-    git checkout "$MAIN_BRANCH"
+        git checkout "$MAIN_BRANCH"
+    else
+        log "✅ Changes staged successfully (--no-pr flag used, skipping PR creation)"
+        log "To commit these changes manually:"
+        log "  git commit -m 'Update all component image digests'"
+        git checkout "$MAIN_BRANCH"
+    fi
 }
 
-# Main function
 main() {
-    # Change to script directory
-    cd "$(dirname "$0")"
+    parse_args "$@"
 
-    log "Starting automated image update process"
-
-    # Check prerequisites
     if ! command -v gh >/dev/null 2>&1; then
         log "❌ GitHub CLI (gh) is required but not installed"
         exit 1
     fi
 
-    # Build image-updater if needed
     if [ ! -f "./image-updater" ]; then
         log "Building image-updater..."
         go build -o image-updater
     fi
 
-    # Ensure we're on main and up to date
-    log "Syncing with $MAIN_BRANCH branch"
-    git checkout "$MAIN_BRANCH"
-    git pull origin "$MAIN_BRANCH"
-
-    # Extract and process components (filter to quay.io only for fork testing)
-    all_components=$(get_components)
-    components="maestro hypershift"  # Only process quay.io images for fork testing
-
-    if [ -z "$components" ]; then
-        log "❌ No components found in $CONFIG_FILE"
+    if bulk_update; then
+        log "🎉 Bulk image update completed successfully"
+    else
+        log "❌ Bulk image update failed"
         exit 1
     fi
-
-    log "All available components: $(echo $all_components | tr '\n' ' ')"
-    log "Processing components (quay.io only): $components"
-
-    # Process each component
-    success_count=0
-    total_count=0
-
-    for component in $components; do
-        total_count=$((total_count + 1))
-        if update_component "$component"; then
-            success_count=$((success_count + 1))
-        fi
-    done
-
-    log "🎉 Completed: $success_count/$total_count components processed successfully"
-
-    # Return to main branch
-    git checkout "$MAIN_BRANCH"
 }
 
-# Run main function if script is executed directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi

@@ -129,7 +129,7 @@ update_component() {
     log "Changes detected:"
     git diff --stat
 
-    git add config/
+    git add --all
 
     # Commit changes with digest hash
     git commit -m "Update $component image digest to ${digest_hash}

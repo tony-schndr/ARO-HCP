@@ -9,7 +9,7 @@ build:
 	go build -o $(BINARY_NAME) .
 
 update: build
-	./$(BINARY_NAME) update --config $(CONFIG_FILE) && make -C ../../ yamlfmt
+	./$(BINARY_NAME) update --config $(CONFIG_FILE) && make -C ../../ yamlfmt > /dev/null 2>&1
 
 clean:
 	rm -f $(BINARY_NAME)

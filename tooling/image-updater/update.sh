@@ -74,33 +74,39 @@ close_existing_prs() {
     fi
 }
 
-get_component_digest_changes() {
-    local changes=""
-    local current_component=""
+parse_cli_output_for_updates() {
+    local cli_output="$1"
 
-    # Simple approach: find component names that are NOT common YAML properties
-    while IFS= read -r line; do
-        # Skip common YAML properties, only match actual component names
-        if [[ $line =~ ^[[:space:]]*[a-zA-Z][a-zA-Z0-9_-]*:[[:space:]]*$ ]]; then
-            local comp=$(echo "$line" | sed 's/^[[:space:]]*\([a-zA-Z][a-zA-Z0-9_-]*\):[[:space:]]*$/\1/')
-            # Exclude common YAML properties
-            if [[ "$comp" != "image" && "$comp" != "digest" && "$comp" != "tag" && "$comp" != "images" ]]; then
-                current_component="$comp"
-            fi
-        fi
-
-        # Found a digest and we have a component
-        if [[ $line =~ ^\+.*digest:.*$ ]] && [[ -n "$current_component" ]]; then
-            local digest=$(echo "$line" | sed 's/^+.*digest: *//g' | tr -d '"')
-            if [[ -n "$digest" ]]; then
-                changes="${changes}- ${current_component}: ${digest}\n"
-            fi
-            current_component=""
-        fi
-    done < <(git diff --cached)
-
-    # Use sort -u to remove duplicates
-    echo -e "$changes" | sort -u
+    # Find blocks with "Processing image:" followed by "📝 Update needed"
+    echo "$cli_output" | awk '
+    /^Processing image:/ {
+        image = $3
+        latest_digest = ""
+        update_needed = 0
+    }
+    /Latest digest:/ {
+        latest_digest = $3
+    }
+    /📝 Update needed/ {
+        update_needed = 1
+    }
+    /^Processing image:/ && NR > 1 && update_needed && latest_digest {
+        print "- " prev_image ": " prev_latest_digest
+        image = $3
+        latest_digest = ""
+        update_needed = 0
+    }
+    {
+        if (image) {
+            prev_image = image
+            if (latest_digest) prev_latest_digest = latest_digest
+        }
+    }
+    END {
+        if (update_needed && latest_digest) {
+            print "- " image ": " latest_digest
+        }
+    }'
 }
 
 bulk_update() {
@@ -109,7 +115,8 @@ bulk_update() {
     cd "$(dirname "$0")"
 
     log "Running image updater for all components"
-    if ! make -C . update; then
+    local cli_output
+    if ! cli_output=$(make -C . update 2>&1); then
         log "❌ Image updater failed"
         return 1
     fi
@@ -144,7 +151,7 @@ bulk_update() {
 
         # Get component digest changes for commit message
         local component_changes
-        component_changes=$(get_component_digest_changes)
+        component_changes=$(parse_cli_output_for_updates "$cli_output")
 
         local commit_msg="Updated image digest for dev and int
 

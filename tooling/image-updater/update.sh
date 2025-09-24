@@ -156,7 +156,7 @@ commit_changes() {
     log "💾 Committing changes..."
 
     # Add all changes
-    git add . >/dev/null 2>&1
+    git add ../../config >/dev/null 2>&1
 
     # Check if there are any changes to commit
     if git diff --cached --quiet; then

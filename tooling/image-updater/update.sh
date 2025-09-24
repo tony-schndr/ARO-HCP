@@ -17,7 +17,7 @@ set -euo pipefail
 # - PR doesnt get created unless `make update` returns "commit message" output
 
 
-CREATE_PR=false
+CREATE_PR=true
 
 if [ -n "${GITHUB_SERVER_URL:-}" ] && [ -n "${GITHUB_REPOSITORY:-}" ] && [ -n "${GITHUB_RUN_ID:-}" ]; then
     WORKFLOW_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"

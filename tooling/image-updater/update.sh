@@ -1,10 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-# Default options
 CREATE_PR=true
 
-# GitHub Actions workflow URL for PR description
 if [ -n "${GITHUB_SERVER_URL:-}" ] && [ -n "${GITHUB_REPOSITORY:-}" ] && [ -n "${GITHUB_RUN_ID:-}" ]; then
     WORKFLOW_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
     AUTOMATION_CREDIT="Automatically updated with [Image Digest Updater](${WORKFLOW_URL})"
@@ -76,14 +74,29 @@ close_existing_prs() {
     fi
 }
 
-get_digest_changes() {
+get_component_digest_changes() {
     local changes=""
-    local component
+    local current_component=""
 
+    # Parse git diff to extract component names and their new digests
     while IFS= read -r line; do
-        if [[ $line =~ ^\+.*digest:.*$ ]]; then
+        # Look for file paths that indicate component (like config/config.yaml changes)
+        if [[ $line =~ ^diff.*config\.yaml$ ]] || [[ $line =~ ^diff.*config\..*\.yaml$ ]]; then
+            continue
+        fi
+
+        # Look for component sections in the diff (e.g., "  arohcpfrontend:")
+        if [[ $line =~ ^[[:space:]]*[a-zA-Z][a-zA-Z0-9_-]*:[[:space:]]*$ ]]; then
+            current_component=$(echo "$line" | sed 's/^[[:space:]]*\([a-zA-Z][a-zA-Z0-9_-]*\):[[:space:]]*$/\1/')
+        fi
+
+        # Look for digest changes and associate with current component
+        if [[ $line =~ ^\+.*digest:.*$ ]] && [[ -n "$current_component" ]]; then
             local digest=$(echo "$line" | sed 's/^+.*digest: *//g' | tr -d '"')
-            changes="${changes}- Updated image digest: \`${digest}\`\n"
+            if [[ -n "$digest" ]]; then
+                changes="${changes}- ${current_component}: ${digest}\n"
+            fi
+            current_component=""  # Reset after finding digest
         fi
     done < <(git diff --cached)
 
@@ -94,10 +107,6 @@ bulk_update() {
     log "Starting bulk image digest update process"
 
     cd "$(dirname "$0")"
-
-    log "Syncing with $MAIN_BRANCH branch"
-    git checkout "$MAIN_BRANCH"
-    git pull origin "$MAIN_BRANCH"
 
     log "Running image updater for all components"
     if ! make -C . update; then
@@ -133,38 +142,33 @@ bulk_update() {
         log "Creating branch: $branch"
         git checkout -b "$branch"
 
-        local all_components
-        all_components=$(get_components | tr '\n' ' ')
+        # Get component digest changes for commit message
+        local component_changes
+        component_changes=$(get_component_digest_changes)
 
-        local commit_msg="Update all component image digests
+        local commit_msg="Updated image digest for dev and int
 
-$all_components
-
+$component_changes
 $AUTOMATION_CREDIT"
 
         git commit -m "$commit_msg"
 
         git push origin "$branch" --force-with-lease
 
-        local digest_changes
-        digest_changes=$(get_digest_changes)
-
         local pr_body="${AUTOMATION_CREDIT}
 
 **Component Image Digest Update**
 
-This PR updates image digests for components.
+This PR updates image digests for dev and int environments.
 
 **Changes:**
-${digest_changes}
-
-**Components Updated:** $all_components"
+${component_changes}"
 
         local new_pr_url
         if new_pr_url=$(gh pr create \
             --title "Auto bump component image digests ($(date +'%Y-%m-%d %H:%M'))" \
             --body "$pr_body" \
-            --base "$MAIN_BRANCH" \
+            --base main \
             --head "$branch" 2>/dev/null); then
 
             local new_pr_number
@@ -174,16 +178,16 @@ ${digest_changes}
             close_existing_prs "$new_pr_number"
         else
             log "❌ Failed to create PR"
-            git checkout "$MAIN_BRANCH"
+            git checkout main
             return 1
         fi
 
-        git checkout "$MAIN_BRANCH"
+        git checkout main
     else
         log "✅ Changes staged successfully (--no-pr flag used, skipping PR creation)"
         log "To commit these changes manually:"
-        log "  git commit -m 'Update all component image digests'"
-        git checkout "$MAIN_BRANCH"
+        log "  git commit -m 'Update component image digests'"
+        git checkout main
     fi
 }
 

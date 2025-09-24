@@ -78,7 +78,7 @@ update_component() {
         log "No changes detected for $component, skipping"
         return 0
     fi
-
+    make -C ../../config materialize
     # Extract the new digest from the changes (before committing)
     local new_digest
     new_digest=$(git diff | grep "^+.*digest:" | head -1 | sed 's/^+.*digest: *//g' | tr -d '"' || echo "")

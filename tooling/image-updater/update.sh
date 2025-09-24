@@ -78,29 +78,29 @@ get_component_digest_changes() {
     local changes=""
     local current_component=""
 
-    # Parse git diff to extract component names and their new digests
+    # Simple approach: find component names that are NOT common YAML properties
     while IFS= read -r line; do
-        # Look for file paths that indicate component (like config/config.yaml changes)
-        if [[ $line =~ ^diff.*config\.yaml$ ]] || [[ $line =~ ^diff.*config\..*\.yaml$ ]]; then
-            continue
-        fi
-
-        # Look for component sections in the diff (e.g., "  arohcpfrontend:")
+        # Skip common YAML properties, only match actual component names
         if [[ $line =~ ^[[:space:]]*[a-zA-Z][a-zA-Z0-9_-]*:[[:space:]]*$ ]]; then
-            current_component=$(echo "$line" | sed 's/^[[:space:]]*\([a-zA-Z][a-zA-Z0-9_-]*\):[[:space:]]*$/\1/')
+            local comp=$(echo "$line" | sed 's/^[[:space:]]*\([a-zA-Z][a-zA-Z0-9_-]*\):[[:space:]]*$/\1/')
+            # Exclude common YAML properties
+            if [[ "$comp" != "image" && "$comp" != "digest" && "$comp" != "tag" && "$comp" != "images" ]]; then
+                current_component="$comp"
+            fi
         fi
 
-        # Look for digest changes and associate with current component
+        # Found a digest and we have a component
         if [[ $line =~ ^\+.*digest:.*$ ]] && [[ -n "$current_component" ]]; then
             local digest=$(echo "$line" | sed 's/^+.*digest: *//g' | tr -d '"')
             if [[ -n "$digest" ]]; then
                 changes="${changes}- ${current_component}: ${digest}\n"
             fi
-            current_component=""  # Reset after finding digest
+            current_component=""
         fi
     done < <(git diff --cached)
 
-    echo -e "$changes"
+    # Use sort -u to remove duplicates
+    echo -e "$changes" | sort -u
 }
 
 bulk_update() {

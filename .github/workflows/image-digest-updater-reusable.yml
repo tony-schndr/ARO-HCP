@@ -22,9 +22,6 @@ on:
       AZURE_SUBSCRIPTION_ID:
         description: 'Azure Subscription ID'
         required: true
-      GITHUB_TOKEN:
-        description: 'GitHub Token'
-        required: true
 env:
   AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
   AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}

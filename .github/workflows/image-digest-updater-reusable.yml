@@ -54,18 +54,18 @@ jobs:
     - name: Set up GitHub CLI
       run: |
         echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
-    - name: Install Azure CLI
-      uses: Azure/ARO-HCP@main
-    - name: Azure CLI login
-      uses: azure/login@v2
-      with:
-        client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-    - name: Azure Container Registry login
-      run: |
-        # Login to dev ACR (used for images in config)
-        az acr login --name arohcpsvcdev || echo "Warning: Could not login to arohcpsvcdev ACR"
+#    - name: Install Azure CLI
+#      uses: Azure/ARO-HCP@main
+#    - name: Azure CLI login
+#      uses: azure/login@v2
+#      with:
+#        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+#        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+#        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+#    - name: Azure Container Registry login
+#      run: |
+#        # Login to dev ACR (used for images in config)
+#        az acr login --name arohcpsvcdev || echo "Warning: Could not login to arohcpsvcdev ACR"
     - name: Run image updater
       run: |
         cd tooling/image-updater

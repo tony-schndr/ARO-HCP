@@ -7,7 +7,7 @@ jobs:
   update-all-except-frontend-backend:
     uses: ./.github/workflows/image-digest-updater-reusable.yml
     with:
-      update-args: '--exclude-components arohcpfrontend,arohcpbackend'
+      update-args: ''
       job-name: 'update-all-except-frontend-backend'
     secrets:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}

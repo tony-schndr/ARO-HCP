@@ -1,8 +1,8 @@
-gitHubOrg: "Azure"
+gitHubOrg: "tony-schndr"
 gitHubRepo: "ARO-HCP"
 gitHubBaseBranch: "main"
 # GitHub authentication
-gitHubLogin: "Azure" # Match the organization to prevent forks from being created since ARO-HCP CI checks can't run from forks.
+gitHubLogin: "tony-schndr" # Match the organization to prevent forks from being created since ARO-HCP CI checks can't run from forks.
 # Git commit settings
 gitName: "ARO HCP Bot"
 gitEmail: "aro-hcp-bot@microsoft.com"

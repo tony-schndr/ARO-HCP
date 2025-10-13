@@ -12,20 +12,20 @@ on:
         required: false
         type: string
         default: 'update-images'
-    secrets:
-      AZURE_CLIENT_ID:
-        description: 'Azure Client ID'
-        required: true
-      AZURE_TENANT_ID:
-        description: 'Azure Tenant ID'
-        required: true
-      AZURE_SUBSCRIPTION_ID:
-        description: 'Azure Subscription ID'
-        required: true
-env:
-  AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-  AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+#     secrets:
+#       AZURE_CLIENT_ID:
+#         description: 'Azure Client ID'
+#         required: true
+#       AZURE_TENANT_ID:
+#         description: 'Azure Tenant ID'
+#         required: true
+#       AZURE_SUBSCRIPTION_ID:
+#         description: 'Azure Subscription ID'
+#         required: true
+# env:
+#   AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+#   AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+#   AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 permissions:
   contents: write
   pull-requests: write
@@ -51,17 +51,17 @@ jobs:
     - name: Set up GitHub CLI
       run: |
         echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
-    - name: Install Azure CLI
-      uses: Azure/ARO-HCP@main
-    - name: Azure CLI login
-      uses: azure/login@v2
-      with:
-        client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-    - name: Azure Container Registry login
-      run: |
-        az acr login --name arohcpsvcdev
+    # - name: Install Azure CLI
+    #   uses: Azure/ARO-HCP@main
+    # - name: Azure CLI login
+    #   uses: azure/login@v2
+    #   with:
+    #     client-id: ${{ secrets.AZURE_CLIENT_ID }}
+    #     tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+    #     subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    # - name: Azure Container Registry login
+    #   run: |
+    #     az acr login --name arohcpsvcdev
     - name: Build autobump
       run: |
         cd tooling/autobump

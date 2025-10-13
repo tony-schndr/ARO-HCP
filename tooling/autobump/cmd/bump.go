@@ -101,6 +101,7 @@ type autobumpOptions struct {
 	ConfigPath        string
 	BumperConfig      string
 	BranchName        string
+	GitHubTokenPath   string
 	DryRun            bool
 	Components        string
 	ExcludeComponents string
@@ -125,6 +126,7 @@ the PR creation workflow including git operations, oncall assignment, and more.`
 	cmd.Flags().StringVar(&opts.ConfigPath, "config", "", "Path to autobump configuration file")
 	cmd.Flags().StringVar(&opts.BumperConfig, "bumper-config", "", "Path to bumper configuration file")
 	cmd.Flags().StringVar(&opts.BranchName, "branch-name", "", "Git branch name for the PR (e.g., 'daily-autobump', 'twice-weekly-autobump')")
+	cmd.Flags().StringVar(&opts.GitHubTokenPath, "github-token-path", "", "Path to file containing GitHub token for authentication")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Show what would be updated without making changes")
 	cmd.Flags().StringVar(&opts.Components, "components", "", "Update only specified components (comma-separated, e.g., 'maestro,arohcpfrontend'). If not specified, all components will be updated")
 	cmd.Flags().StringVar(&opts.ExcludeComponents, "exclude-components", "", "Exclude specified components from update (comma-separated, e.g., 'arohcpfrontend,arohcpbackend'). Ignored if --components is specified")
@@ -151,6 +153,11 @@ func runAutobump(cmd *cobra.Command, opts *autobumpOptions) error {
 	if opts.BranchName != "" {
 		bumperOpts.HeadBranchName = opts.BranchName
 		logger.Info("Using custom branch name", "branch", opts.BranchName)
+	}
+
+	if opts.GitHubTokenPath != "" {
+		bumperOpts.GitHubToken = opts.GitHubTokenPath
+		logger.Info("Using GitHub token from file", "path", opts.GitHubTokenPath)
 	}
 
 	if opts.DryRun {

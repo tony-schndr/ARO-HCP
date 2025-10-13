@@ -48,9 +48,10 @@ jobs:
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-    - name: Set up GitHub CLI
+    - name: Set up GitHub Auth
       run: |
         echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+        gh auth token > /tmp/github-token
     # - name: Install Azure CLI
     #   uses: Azure/ARO-HCP@main
     # - name: Azure CLI login
@@ -66,9 +67,6 @@ jobs:
       run: |
         cd tooling/autobump
         go build -o autobump
-    - name: Prepare GitHub token for autobump
-      run: |
-        echo "${{ secrets.GITHUB_TOKEN }}" > /tmp/github-token
     - name: Run autobump
       run: |
         cd tooling/autobump
@@ -76,6 +74,7 @@ jobs:
           --config config.yaml \
           --bumper-config autobump-config.yaml \
           --branch-name ${{ inputs.job-name }}-autobump \
+          --github-token-path /tmp/github-token \
           ${{ inputs.update-args }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

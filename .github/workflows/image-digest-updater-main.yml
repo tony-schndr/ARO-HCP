@@ -76,6 +76,7 @@ jobs:
           --config config.yaml \
           --bumper-config autobump-config.yaml \
           --branch-name ${{ inputs.job-name }}-autobump \
+          --github-token-path /tmp/github-token \
           ${{ inputs.update-args }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

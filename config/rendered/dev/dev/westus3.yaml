@@ -143,14 +143,14 @@ billing:
   kusto:
     clusterName: ""
     clusterPrincipals:
-    - id: ""
-      name: ""
-      role: ""
-      tenantId: ""
-      type: ""
+      - id: ""
+        name: ""
+        role: ""
+        tenantId: ""
+        type: ""
     dstsGroups:
-    - description: ""
-      name: ""
+      - description: ""
+        name: ""
     sku: ""
     vmUsageStaleThreshold: ""
   pav2:
@@ -339,7 +339,7 @@ geneva:
     adminCertificateDomain: geneva.keyvault.aro-hcp-global.azure.com
     administrators:
       alias:
-      - AME\WEINONGW
+        - AME\WEINONGW
       securityGroup: AME\TM-AzureRedHatOpenShift-Leads
     certificateDomain: geneva.keyvault.aro-hcp.azure.com
     certificateIssuer: Self
@@ -389,13 +389,13 @@ global:
     providers:
       Microsoft.Compute:
         features:
-        - name: EncryptionAtHost
-          poll: true
+          - name: EncryptionAtHost
+            poll: true
         poll: true
       Microsoft.ContainerService:
         features:
-        - name: IstioNativeSidecarModePreview
-          poll: true
+          - name: IstioNativeSidecarModePreview
+            poll: true
         poll: true
       Microsoft.Dashboard:
         poll: true
@@ -403,18 +403,14 @@ global:
         poll: true
       Microsoft.Network:
         features:
-        - name: AllowBringYourOwnPublicIpAddress
-          poll: true
+          - name: AllowBringYourOwnPublicIpAddress
+            poll: true
         poll: true
 hcpRecovery:
   image:
     digest: ""
     registry: arohcpsvcdev.azurecr.io
     repository: arohcprecovery
-  k8s:
-    namespace: hcp-recovery
-    replicas: 2
-    serviceAccountName: hcp-recovery
 hypershift:
   additionalInstallArg: --enable-cpo-overrides
   image:
@@ -642,27 +638,27 @@ mgmt:
   rg: hcp-underlay-dev-westus3-mgmt-1
   subscription:
     certificateDomains:
-    - '*.hcp.osadev.cloud'
-    - '*.hcpsvc.osadev.cloud'
+      - '*.hcp.osadev.cloud'
+      - '*.hcpsvc.osadev.cloud'
     displayName: Azure Red Hat OpenShift HCP - West US 3 - MGMT - 1
     key: ARO Hosted Control Planes (EA Subscription 1)
     providers:
       Microsoft.Compute:
         features:
-        - name: EncryptionAtHost
-          poll: true
+          - name: EncryptionAtHost
+            poll: true
         poll: true
       Microsoft.ContainerService:
         features:
-        - name: IstioNativeSidecarModePreview
-          poll: true
+          - name: IstioNativeSidecarModePreview
+            poll: true
         poll: true
       Microsoft.Insights:
         poll: true
       Microsoft.Network:
         features:
-        - name: AllowBringYourOwnPublicIpAddress
-          poll: true
+          - name: AllowBringYourOwnPublicIpAddress
+            poll: true
         poll: true
       Microsoft.Storage:
         poll: true
@@ -953,21 +949,21 @@ svc:
   rg: hcp-underlay-dev-westus3-svc
   subscription:
     certificateDomains:
-    - '*.hcpsvc.osadev.cloud'
+      - '*.hcpsvc.osadev.cloud'
     displayName: Azure Red Hat OpenShift HCP - West US 3 - SVC
     key: ARO Hosted Control Planes (EA Subscription 1)
     providers:
       Microsoft.Compute:
         features:
-        - name: EncryptionAtHost
-          poll: true
+          - name: EncryptionAtHost
+            poll: true
         poll: true
       Microsoft.ContainerService:
         features:
-        - name: IstioNativeSidecarModePreview
-          poll: true
-        - name: ManagedGatewayAPIPreview
-          poll: true
+          - name: IstioNativeSidecarModePreview
+            poll: true
+          - name: ManagedGatewayAPIPreview
+            poll: true
         poll: true
       Microsoft.Dashboard:
         poll: true
@@ -979,8 +975,8 @@ svc:
         poll: true
       Microsoft.Network:
         features:
-        - name: AllowBringYourOwnPublicIpAddress
-          poll: true
+          - name: AllowBringYourOwnPublicIpAddress
+            poll: true
         poll: true
     usePlannedQuota: true
 tenantId: 64dc69e4-d083-49fc-9569-ebece1dd1408

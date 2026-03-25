@@ -77,6 +77,12 @@ const (
 
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="ClusterID",type=string,JSONPath=`.spec.clusterId`
+// +kubebuilder:printcolumn:name="BackupID",type=string,JSONPath=`.spec.backupId`
+// +kubebuilder:printcolumn:name="Started",type=string,format=date-time,JSONPath=`.status.startedAt`
+// +kubebuilder:printcolumn:name="Completed",type=string,format=date-time,JSONPath=`.status.completedAt`
 
 // HCPRecovery represents a disaster recovery operation for a Hosted Control Plane.
 // It orchestrates the restoration of an HCP from a Velero backup, coordinating
@@ -103,16 +109,20 @@ type HCPRecovery struct {
 // HCPRecoverySpec defines the desired state of a recovery operation.
 // All fields are immutable after creation to ensure recovery operations
 // are auditable and cannot be modified mid-flight.
+//
+// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec is immutable"
 type HCPRecoverySpec struct {
+	// +kubebuilder:validation:Required
 	// clusterId is the identifier of the Hosted Cluster to recover.
 	// This is used to locate the HostedCluster and HCP resources
 	// on the management cluster.
-	ClusterId string `json:"clusterId,omitempty"`
+	ClusterId string `json:"clusterId"`
 
+	// +kubebuilder:validation:Required
 	// backupId is the identifier of the Velero backup to restore from.
 	// The controller validates that this backup exists and is in a
 	// completed state before proceeding with the restore.
-	BackupId string `json:"backupId,omitempty"`
+	BackupId string `json:"backupId"`
 }
 
 // HCPRecoveryStatus reports the observed state of the recovery operation.
@@ -150,6 +160,7 @@ type HCPRecoveryStatus struct {
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:object:root=true
 
 // HCPRecoveryList is a list of HCPRecovery resources
 type HCPRecoveryList struct {

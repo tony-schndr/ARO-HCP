@@ -32,6 +32,10 @@ update-codegen: $(KUBE_CODEGEN_SH) $(INFORMER_GEN) $(CLIENT_GEN) $(LISTER_GEN) $
 	make -C .. fmt
 .PHONY: update-codegen
 
+generate-crds: $(CONTROLLER_GEN)
+	$(CONTROLLER_GEN) crd paths="./pkg/apis/..." output:crd:dir=deploy/templates
+.PHONY: generate-crds
+
 build: $(BINARY)
 .PHONY: build
 

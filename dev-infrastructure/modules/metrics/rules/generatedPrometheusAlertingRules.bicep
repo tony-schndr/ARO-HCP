@@ -1058,6 +1058,261 @@ resource maestro 'Microsoft.AlertsManagement/prometheusRuleGroups@2023-03-01' = 
   }
 }
 
+resource velero 'Microsoft.AlertsManagement/prometheusRuleGroups@2023-03-01' = {
+  name: 'velero'
+  location: location
+  properties: {
+    interval: 'PT1M'
+    rules: [
+      {
+        actions: [
+          for g in actionGroups: {
+            actionGroupId: g
+            actionProperties: {
+              'IcM.Title': '#$.labels.cluster#: #$.annotations.title#'
+              'IcM.CorrelationId': '#$.annotations.correlationId#'
+            }
+          }
+        ]
+        alert: 'VeleroHourlyBackupStuck'
+        enabled: true
+        labels: {
+          severity: 'warning'
+        }
+        annotations: {
+          correlationId: 'VeleroHourlyBackupStuck/{{ $labels.cluster }}'
+          description: 'Velero hourly schedule {{ $labels.schedule }} has had zero fully successful backups in the last 2 hours. A stuck or failed backup may be blocking the queue. Note: PartiallyFailed backups are not counted as successful.'
+          info: 'Velero hourly schedule {{ $labels.schedule }} has had zero fully successful backups in the last 2 hours. A stuck or failed backup may be blocking the queue. Note: PartiallyFailed backups are not counted as successful.'
+          runbook_url: 'TBD'
+          summary: 'Velero hourly backup stuck: no successful backup for {{ $labels.schedule }} in over 2 hours'
+          title: 'Velero hourly backup stuck: no successful backup for {{ $labels.schedule }} in over 2 hours'
+        }
+        expression: 'max by(schedule, cluster) (max without(prometheus_replica) (increase(velero_backup_success_total{schedule=~".*-hourly", cluster=~".+"}[2h]))) == 0'
+        for: 'PT15M'
+        severity: 3
+      }
+      {
+        actions: [
+          for g in actionGroups: {
+            actionGroupId: g
+            actionProperties: {
+              'IcM.Title': '#$.labels.cluster#: #$.annotations.title#'
+              'IcM.CorrelationId': '#$.annotations.correlationId#'
+            }
+          }
+        ]
+        alert: 'VeleroHourlyBackupStuckCritical'
+        enabled: true
+        labels: {
+          severity: 'critical'
+        }
+        annotations: {
+          correlationId: 'VeleroHourlyBackupStuckCritical/{{ $labels.cluster }}'
+          description: 'Velero hourly schedule {{ $labels.schedule }} has had zero fully successful backups in the last 6 hours. Backups are likely piling up with one stuck backup blocking the queue. Note: PartiallyFailed backups are not counted as successful.'
+          info: 'Velero hourly schedule {{ $labels.schedule }} has had zero fully successful backups in the last 6 hours. Backups are likely piling up with one stuck backup blocking the queue. Note: PartiallyFailed backups are not counted as successful.'
+          runbook_url: 'TBD'
+          summary: 'Velero hourly backup critically stuck: no successful backup for {{ $labels.schedule }} in over 6 hours'
+          title: 'Velero hourly backup critically stuck: no successful backup for {{ $labels.schedule }} in over 6 hours'
+        }
+        expression: 'max by(schedule, cluster) (max without(prometheus_replica) (increase(velero_backup_success_total{schedule=~".*-hourly", cluster=~".+"}[6h]))) == 0'
+        for: 'PT15M'
+        severity: 3
+      }
+      {
+        actions: [
+          for g in actionGroups: {
+            actionGroupId: g
+            actionProperties: {
+              'IcM.Title': '#$.labels.cluster#: #$.annotations.title#'
+              'IcM.CorrelationId': '#$.annotations.correlationId#'
+            }
+          }
+        ]
+        alert: 'VeleroDailyBackupStuck'
+        enabled: true
+        labels: {
+          severity: 'warning'
+        }
+        annotations: {
+          correlationId: 'VeleroDailyBackupStuck/{{ $labels.cluster }}'
+          description: 'Velero daily schedule {{ $labels.schedule }} has had zero fully successful backups in the last 26 hours. A stuck or failed backup may be blocking the queue. Note: PartiallyFailed backups are not counted as successful.'
+          info: 'Velero daily schedule {{ $labels.schedule }} has had zero fully successful backups in the last 26 hours. A stuck or failed backup may be blocking the queue. Note: PartiallyFailed backups are not counted as successful.'
+          runbook_url: 'TBD'
+          summary: 'Velero daily backup stuck: no successful backup for {{ $labels.schedule }} in over 26 hours'
+          title: 'Velero daily backup stuck: no successful backup for {{ $labels.schedule }} in over 26 hours'
+        }
+        expression: 'max by(schedule, cluster) (max without(prometheus_replica) (increase(velero_backup_success_total{schedule=~".*-daily", cluster=~".+"}[26h]))) == 0'
+        for: 'PT15M'
+        severity: 3
+      }
+      {
+        actions: [
+          for g in actionGroups: {
+            actionGroupId: g
+            actionProperties: {
+              'IcM.Title': '#$.labels.cluster#: #$.annotations.title#'
+              'IcM.CorrelationId': '#$.annotations.correlationId#'
+            }
+          }
+        ]
+        alert: 'VeleroDailyBackupStuckCritical'
+        enabled: true
+        labels: {
+          severity: 'critical'
+        }
+        annotations: {
+          correlationId: 'VeleroDailyBackupStuckCritical/{{ $labels.cluster }}'
+          description: 'Velero daily schedule {{ $labels.schedule }} has had zero fully successful backups in the last 50 hours. Backups are likely piling up with one stuck backup blocking the queue. Note: PartiallyFailed backups are not counted as successful.'
+          info: 'Velero daily schedule {{ $labels.schedule }} has had zero fully successful backups in the last 50 hours. Backups are likely piling up with one stuck backup blocking the queue. Note: PartiallyFailed backups are not counted as successful.'
+          runbook_url: 'TBD'
+          summary: 'Velero daily backup critically stuck: no successful backup for {{ $labels.schedule }} in over 50 hours'
+          title: 'Velero daily backup critically stuck: no successful backup for {{ $labels.schedule }} in over 50 hours'
+        }
+        expression: 'max by(schedule, cluster) (max without(prometheus_replica) (increase(velero_backup_success_total{schedule=~".*-daily", cluster=~".+"}[50h]))) == 0'
+        for: 'PT15M'
+        severity: 3
+      }
+      {
+        actions: [
+          for g in actionGroups: {
+            actionGroupId: g
+            actionProperties: {
+              'IcM.Title': '#$.labels.cluster#: #$.annotations.title#'
+              'IcM.CorrelationId': '#$.annotations.correlationId#'
+            }
+          }
+        ]
+        alert: 'VeleroBackupInProgressTooLong'
+        enabled: true
+        labels: {
+          severity: 'warning'
+        }
+        annotations: {
+          correlationId: 'VeleroBackupInProgressTooLong/{{ $labels.cluster }}'
+          description: 'Velero schedule {{ $labels.schedule }} has a backup stuck in InProgress phase for over 2 hours. This blocks subsequent backups from being processed.'
+          info: 'Velero schedule {{ $labels.schedule }} has a backup stuck in InProgress phase for over 2 hours. This blocks subsequent backups from being processed.'
+          runbook_url: 'TBD'
+          summary: 'Velero backup stuck InProgress for {{ $labels.schedule }} for over 2 hours'
+          title: 'Velero backup stuck InProgress for {{ $labels.schedule }} for over 2 hours'
+        }
+        expression: 'count by(schedule, cluster) (max without(prometheus_replica) (veleroBackup_phase{phase="InProgress", cluster=~".+"}) == 1) > 0'
+        for: 'PT2H'
+        severity: 3
+      }
+    ]
+    scopes: [
+      azureMonitoring
+    ]
+  }
+}
+
+resource veleroAnomaly 'Microsoft.AlertsManagement/prometheusRuleGroups@2023-03-01' = {
+  name: 'velero-anomaly'
+  location: location
+  properties: {
+    interval: 'PT1M'
+    rules: [
+      {
+        actions: [
+          for g in actionGroups: {
+            actionGroupId: g
+            actionProperties: {
+              'IcM.Title': '#$.labels.cluster#: #$.annotations.title#'
+              'IcM.CorrelationId': '#$.annotations.correlationId#'
+            }
+          }
+        ]
+        alert: 'VeleroCSISnapshotFailureRate'
+        enabled: true
+        labels: {
+          severity: 'warning'
+        }
+        annotations: {
+          correlationId: 'VeleroCSISnapshotFailureRate/{{ $labels.cluster }}'
+          description: 'Velero CSI snapshot failure rate is {{ $value | humanizePercentage }} over the last 2 hours (threshold: 20%).'
+          info: 'Velero CSI snapshot failure rate is {{ $value | humanizePercentage }} over the last 2 hours (threshold: 20%).'
+          runbook_url: 'TBD'
+          summary: 'Velero CSI snapshot failure rate above 20%'
+          title: 'Velero CSI snapshot failure rate above 20%'
+        }
+        expression: '( sum by (cluster) (increase(velero:csi_snapshot_failure:total{cluster=~".+"}[2h])) / sum by (cluster) (increase(velero:csi_snapshot_attempt:total{cluster=~".+"}[2h])) ) > 0.2 and sum by (cluster) (increase(velero:csi_snapshot_attempt:total{cluster=~".+"}[2h])) > 0'
+        for: 'PT5M'
+        severity: 3
+      }
+      {
+        actions: [
+          for g in actionGroups: {
+            actionGroupId: g
+            actionProperties: {
+              'IcM.Title': '#$.labels.cluster#: #$.annotations.title#'
+              'IcM.CorrelationId': '#$.annotations.correlationId#'
+            }
+          }
+        ]
+        alert: 'VeleroBackupDeletionFailureRate'
+        enabled: true
+        labels: {
+          severity: 'warning'
+        }
+        annotations: {
+          correlationId: 'VeleroBackupDeletionFailureRate/{{ $labels.cluster }}'
+          description: 'Velero backup deletion failure rate is {{ $value | humanizePercentage }} over the last 2 hours (threshold: 20%).'
+          info: 'Velero backup deletion failure rate is {{ $value | humanizePercentage }} over the last 2 hours (threshold: 20%).'
+          runbook_url: 'TBD'
+          summary: 'Velero backup deletion failure rate above 20%'
+          title: 'Velero backup deletion failure rate above 20%'
+        }
+        expression: '( sum by (cluster) (max without(prometheus_replica) (increase(velero_backup_deletion_failure_total{namespace=~"velero.*", cluster=~".+"}[2h]))) / sum by (cluster) (max without(prometheus_replica) (increase(velero_backup_deletion_attempt_total{namespace=~"velero.*", cluster=~".+"}[2h]))) ) > 0.2 and sum by (cluster) (max without(prometheus_replica) (increase(velero_backup_deletion_attempt_total{namespace=~"velero.*", cluster=~".+"}[2h]))) > 0'
+        for: 'PT5M'
+        severity: 3
+      }
+    ]
+    scopes: [
+      azureMonitoring
+    ]
+  }
+}
+
+resource veleroInfrastructure 'Microsoft.AlertsManagement/prometheusRuleGroups@2023-03-01' = {
+  name: 'velero-infrastructure'
+  location: location
+  properties: {
+    interval: 'PT1M'
+    rules: [
+      {
+        actions: [
+          for g in actionGroups: {
+            actionGroupId: g
+            actionProperties: {
+              'IcM.Title': '#$.labels.cluster#: #$.annotations.title#'
+              'IcM.CorrelationId': '#$.annotations.correlationId#'
+            }
+          }
+        ]
+        alert: 'VeleroMetricsAbsent'
+        enabled: true
+        labels: {
+          severity: 'critical'
+        }
+        annotations: {
+          correlationId: 'VeleroMetricsAbsent/{{ $labels.cluster }}'
+          description: 'No Velero backup metrics detected for 15+ minutes. The Velero server may be down or metrics scraping is broken.'
+          info: 'No Velero backup metrics detected for 15+ minutes. The Velero server may be down or metrics scraping is broken.'
+          runbook_url: 'TBD'
+          summary: 'Velero metrics absent for over 15 minutes'
+          title: 'Velero metrics absent for over 15 minutes'
+        }
+        expression: 'absent(velero_backup_total{namespace=~"velero.*"})'
+        for: 'PT15M'
+        severity: 3
+      }
+    ]
+    scopes: [
+      azureMonitoring
+    ]
+  }
+}
+
 resource arobitRules 'Microsoft.AlertsManagement/prometheusRuleGroups@2023-03-01' = {
   name: 'arobit-rules'
   location: location

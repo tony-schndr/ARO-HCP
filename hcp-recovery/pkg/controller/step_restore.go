@@ -31,7 +31,21 @@ import (
 func (c *HCPRecoveryController) createVeleroRestore(ctx context.Context, recovery *hcprecoveryv1alpha1.HCPRecovery) (bool, *actions, error) {
 	logger := klog.FromContext(ctx)
 
-	name := restoreName(recovery.Name)
+	// Phase 1: Ensure the restore name is persisted in status before creating
+	// the actual Velero Restore. This prevents duplicate restores if the
+	// controller crashes between restore creation and status update.
+	name := recovery.Status.RestoreName
+	if name == "" {
+		name = restoreName(recovery.Name, string(recovery.UID))
+		statusUpdate, needsUpdate := NewStatus(recovery.Status).
+			WithRestoreName(name).
+			AsApplyConfiguration(recovery)
+		if needsUpdate {
+			return true, &actions{StatusUpdate: statusUpdate}, nil
+		}
+	}
+
+	// Phase 2: Check for existing restore or create one
 	existing := &velerov1api.Restore{}
 	err := c.ctrlClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "velero", Name: name}, existing)
 	if err != nil && !apierrors.IsNotFound(err) {

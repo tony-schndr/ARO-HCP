@@ -82,6 +82,7 @@ const (
 // +kubebuilder:printcolumn:name="ClusterID",type=string,JSONPath=`.spec.clusterId`
 // +kubebuilder:printcolumn:name="BackupID",type=string,JSONPath=`.spec.backupId`
 // +kubebuilder:printcolumn:name="Started",type=string,format=date-time,JSONPath=`.status.startedAt`
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Completed",type=string,format=date-time,JSONPath=`.status.completedAt`
 
 // HCPRecovery represents a disaster recovery operation for a Hosted Control Plane.
@@ -128,6 +129,12 @@ type HCPRecoverySpec struct {
 // HCPRecoveryStatus reports the observed state of the recovery operation.
 type HCPRecoveryStatus struct {
 	// +optional
+	// +kubebuilder:validation:Enum=InProgress;Completed;Failed
+	// phase represents the overall state of the recovery operation.
+	// When set to Failed or Completed, the controller will not reprocess the resource.
+	Phase RestoreState `json:"phase,omitempty"`
+
+	// +optional
 	// +listType=map
 	// +listMapKey=type
 	// +patchMergeKey=type
@@ -157,6 +164,13 @@ type HCPRecoveryStatus struct {
 	// that was captured before the HCP namespace was deleted. This state
 	// is used to reconcile machines after the Velero restore completes.
 	CAPIMachineBackup string `json:"capiMachineBackup,omitempty"`
+
+	// +optional
+	// restoreName is the name of the Velero Restore created for this recovery.
+	// It is persisted to status before the restore is created to prevent
+	// duplicate restores if the controller crashes between creation and
+	// status update.
+	RestoreName string `json:"restoreName,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

@@ -18,22 +18,54 @@ package v1alpha1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
+
+	hcprecoveryv1alpha1 "github.com/Azure/ARO-HCP/hcp-recovery/pkg/apis/hcprecovery/v1alpha1"
 )
 
 // HCPRecoveryStatusApplyConfiguration represents a declarative configuration of the HCPRecoveryStatus type for use
 // with apply.
+//
+// HCPRecoveryStatus reports the observed state of the recovery operation.
 type HCPRecoveryStatusApplyConfiguration struct {
-	Conditions          []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	StartedAt           *metav1.Time                     `json:"startedAt,omitempty"`
-	CompletedAt         *metav1.Time                     `json:"completedAt,omitempty"`
-	RestoredToTimestamp *metav1.Time                     `json:"restoredToTimestamp,omitempty"`
-	CAPIMachineBackup   *string                          `json:"capiMachineBackup,omitempty"`
+	// phase represents the overall state of the recovery operation.
+	// When set to Failed or Completed, the controller will not reprocess the resource.
+	Phase *hcprecoveryv1alpha1.RestoreState `json:"phase,omitempty"`
+	// conditions represent the current state of the recovery operation.
+	// Each condition corresponds to a step in the recovery process.
+	// The controller processes steps sequentially; a condition with status
+	// True indicates that step has completed successfully.
+	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// startedAt is the timestamp when the recovery operation began processing.
+	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+	// completedAt is the timestamp when the recovery operation finished,
+	// either successfully or with a terminal failure.
+	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
+	// restoredToTimestamp is the point-in-time that the backup represents,
+	// indicating the state the HCP has been restored to.
+	RestoredToTimestamp *metav1.Time `json:"restoredToTimestamp,omitempty"`
+	// capiMachineBackup is a reference to the stored CAPI Machine state
+	// that was captured before the HCP namespace was deleted. This state
+	// is used to reconcile machines after the Velero restore completes.
+	CAPIMachineBackup *string `json:"capiMachineBackup,omitempty"`
+	// restoreName is the name of the Velero Restore created for this recovery.
+	// It is persisted to status before the restore is created to prevent
+	// duplicate restores if the controller crashes between creation and
+	// status update.
+	RestoreName *string `json:"restoreName,omitempty"`
 }
 
 // HCPRecoveryStatusApplyConfiguration constructs a declarative configuration of the HCPRecoveryStatus type for use with
 // apply.
 func HCPRecoveryStatus() *HCPRecoveryStatusApplyConfiguration {
 	return &HCPRecoveryStatusApplyConfiguration{}
+}
+
+// WithPhase sets the Phase field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Phase field is set to the value of the last call.
+func (b *HCPRecoveryStatusApplyConfiguration) WithPhase(value hcprecoveryv1alpha1.RestoreState) *HCPRecoveryStatusApplyConfiguration {
+	b.Phase = &value
+	return b
 }
 
 // WithConditions adds the given value to the Conditions field in the declarative configuration
@@ -78,5 +110,13 @@ func (b *HCPRecoveryStatusApplyConfiguration) WithRestoredToTimestamp(value meta
 // If called multiple times, the CAPIMachineBackup field is set to the value of the last call.
 func (b *HCPRecoveryStatusApplyConfiguration) WithCAPIMachineBackup(value string) *HCPRecoveryStatusApplyConfiguration {
 	b.CAPIMachineBackup = &value
+	return b
+}
+
+// WithRestoreName sets the RestoreName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RestoreName field is set to the value of the last call.
+func (b *HCPRecoveryStatusApplyConfiguration) WithRestoreName(value string) *HCPRecoveryStatusApplyConfiguration {
+	b.RestoreName = &value
 	return b
 }

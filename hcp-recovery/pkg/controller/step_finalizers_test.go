@@ -26,10 +26,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
+	capzv1beta1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	hcprecoveryv1alpha1 "github.com/Azure/ARO-HCP/hcp-recovery/pkg/apis/hcprecovery/v1alpha1"
+	recoverypkg "github.com/Azure/ARO-HCP/hcp-recovery/pkg/recovery"
 )
 
 const (
@@ -97,6 +100,24 @@ func newRecovery(conditions ...metav1.Condition) *hcprecoveryv1alpha1.HCPRecover
 func newController(kubeObjects []runtime.Object, ctrlObjects []ctrlclient.Object) *HCPRecoveryController {
 	scheme := runtime.NewScheme()
 	_ = v1beta1.AddToScheme(scheme)
+
+	ctrlBuilder := ctrlfake.NewClientBuilder().WithScheme(scheme)
+	if ctrlObjects != nil {
+		ctrlBuilder = ctrlBuilder.WithObjects(ctrlObjects...)
+	}
+
+	return &HCPRecoveryController{
+		kubeClient: kubefake.NewClientset(kubeObjects...),
+		ctrlClient: ctrlBuilder.Build(),
+	}
+}
+
+// newControllerWithFullScheme creates a controller with all types registered
+// (Velero, CAPI, HyperShift, Azure). Use this for tests that need Velero
+// Backup/Restore/Schedule or CAPI Machine types in the ctrlClient.
+func newControllerWithFullScheme(kubeObjects []runtime.Object, ctrlObjects []ctrlclient.Object) *HCPRecoveryController {
+	scheme := runtime.NewScheme()
+	_ = recoverypkg.AddToScheme(scheme)
 
 	ctrlBuilder := ctrlfake.NewClientBuilder().WithScheme(scheme)
 	if ctrlObjects != nil {
@@ -489,6 +510,280 @@ func TestCollectDeploymentFinalizerRemovals(t *testing.T) {
 				}
 				return
 			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(removals) != tt.expectRemovals {
+				t.Errorf("expected %d removals, got %d", tt.expectRemovals, len(removals))
+			}
+
+			for _, r := range removals {
+				if len(r.object.GetFinalizers()) != 0 {
+					t.Errorf("object %s should have finalizers cleared", r.object.GetName())
+				}
+				if len(r.base.GetFinalizers()) == 0 {
+					t.Errorf("base %s should still have original finalizers", r.base.GetName())
+				}
+			}
+		})
+	}
+}
+
+func TestRemoveCloudResourcesFinalizers(t *testing.T) {
+	tests := []struct {
+		name               string
+		recovery           *hcprecoveryv1alpha1.HCPRecovery
+		kubeObjects        []runtime.Object
+		ctrlObjects        []ctrlclient.Object
+		expectDone         bool
+		expectAction       bool
+		expectStatusUpdate bool
+		expectRemovals     bool
+	}{
+		{
+			name: "already completed - CloudFinalizersRemoved is True",
+			recovery: newRecovery(metav1.Condition{
+				Type:   hcprecoveryv1alpha1.ConditionCloudFinalizersRemoved,
+				Status: metav1.ConditionTrue,
+			}),
+			expectDone: false,
+		},
+		{
+			name: "already completed - NamespaceFullyRemoved is True",
+			recovery: newRecovery(metav1.Condition{
+				Type:   hcprecoveryv1alpha1.ConditionNamespaceFullyRemoved,
+				Status: metav1.ConditionTrue,
+			}),
+			expectDone: false,
+		},
+		{
+			name:               "hosted cluster not found - marks condition True",
+			recovery:           newRecovery(),
+			ctrlObjects:        []ctrlclient.Object{},
+			kubeObjects:        []runtime.Object{},
+			expectDone:         true,
+			expectAction:       true,
+			expectStatusUpdate: true,
+		},
+		{
+			name:     "namespace not found - marks condition True",
+			recovery: newRecovery(),
+			ctrlObjects: []ctrlclient.Object{
+				newTestHostedCluster(),
+			},
+			kubeObjects:        []runtime.Object{},
+			expectDone:         true,
+			expectAction:       true,
+			expectStatusUpdate: true,
+		},
+		{
+			name:     "namespace not terminating - permanent error",
+			recovery: newRecovery(),
+			ctrlObjects: []ctrlclient.Object{
+				newTestHostedCluster(),
+			},
+			kubeObjects: []runtime.Object{
+				newActiveNamespace(testHCPNamespace),
+			},
+			expectDone:         true,
+			expectAction:       true,
+			expectStatusUpdate: true,
+		},
+		{
+			name:     "no objects with finalizers - marks condition True",
+			recovery: newRecovery(),
+			ctrlObjects: []ctrlclient.Object{
+				newTestHostedCluster(),
+			},
+			kubeObjects: []runtime.Object{
+				newTerminatingNamespace(testHCPNamespace),
+			},
+			expectDone:         true,
+			expectAction:       true,
+			expectStatusUpdate: true,
+		},
+		{
+			name:     "objects with finalizers - returns removals",
+			recovery: newRecovery(),
+			ctrlObjects: []ctrlclient.Object{
+				newTestHostedCluster(),
+				&clusterv1beta1.Machine{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "machine-1",
+						Namespace:  testHCPNamespace,
+						Finalizers: []string{"some-finalizer"},
+					},
+				},
+				&capzv1beta1.AzureMachine{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "azure-machine-1",
+						Namespace:  testHCPNamespace,
+						Finalizers: []string{"azure-finalizer"},
+					},
+				},
+			},
+			kubeObjects: []runtime.Object{
+				newTerminatingNamespace(testHCPNamespace),
+			},
+			expectDone:     true,
+			expectAction:   true,
+			expectRemovals: true,
+		},
+	}
+
+	t.Run("getHostedCluster error - retryable error with status update", func(t *testing.T) {
+		c := newControllerWithEmptyScheme(nil)
+		recovery := newRecovery()
+
+		done, action, _ := c.removeCloudResourcesFinalizers(context.Background(), recovery)
+
+		if !done {
+			t.Error("expected done=true")
+		}
+		if action == nil {
+			t.Fatal("expected action, got nil")
+		}
+		if action.StatusUpdate == nil {
+			t.Fatal("expected StatusUpdate for error condition")
+		}
+	})
+
+	t.Run("namespace get non-NotFound error - retryable error with status update", func(t *testing.T) {
+		c := newControllerWithFullScheme([]runtime.Object{}, []ctrlclient.Object{newTestHostedCluster()})
+		fakeClient := c.kubeClient.(*kubefake.Clientset)
+		fakeClient.PrependReactor("get", "namespaces", func(action clienttesting.Action) (bool, runtime.Object, error) {
+			return true, nil, fmt.Errorf("internal server error")
+		})
+
+		recovery := newRecovery()
+		done, action, _ := c.removeCloudResourcesFinalizers(context.Background(), recovery)
+
+		if !done {
+			t.Error("expected done=true")
+		}
+		if action == nil {
+			t.Fatal("expected action, got nil")
+		}
+		if action.StatusUpdate == nil {
+			t.Fatal("expected StatusUpdate for error condition")
+		}
+	})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var c *HCPRecoveryController
+			if tt.ctrlObjects == nil && tt.kubeObjects == nil {
+				c = newControllerWithFullScheme(nil, nil)
+			} else {
+				c = newControllerWithFullScheme(tt.kubeObjects, tt.ctrlObjects)
+			}
+
+			done, action, err := c.removeCloudResourcesFinalizers(context.Background(), tt.recovery)
+
+			if done != tt.expectDone {
+				t.Errorf("expected done=%v, got %v", tt.expectDone, done)
+			}
+
+			if tt.expectAction && action == nil {
+				t.Fatal("expected action, got nil")
+			}
+			if !tt.expectAction && action != nil {
+				t.Fatalf("expected no action, got %+v", action)
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+
+			if action != nil {
+				if tt.expectStatusUpdate && action.StatusUpdate == nil {
+					t.Error("expected StatusUpdate action, got nil")
+				}
+				if tt.expectRemovals && len(action.RemoveCloudResourceFinalizers) == 0 {
+					t.Error("expected RemoveCloudResourceFinalizers, got none")
+				}
+				if !tt.expectRemovals && len(action.RemoveCloudResourceFinalizers) > 0 {
+					t.Error("expected no RemoveCloudResourceFinalizers, got some")
+				}
+			}
+		})
+	}
+}
+
+func TestCollectCloudFinalizerRemovals(t *testing.T) {
+	tests := []struct {
+		name           string
+		ctrlObjects    []ctrlclient.Object
+		expectRemovals int
+	}{
+		{
+			name:           "no objects in namespace",
+			ctrlObjects:    []ctrlclient.Object{},
+			expectRemovals: 0,
+		},
+		{
+			name: "objects without finalizers",
+			ctrlObjects: []ctrlclient.Object{
+				&clusterv1beta1.Machine{
+					ObjectMeta: metav1.ObjectMeta{Name: "machine-1", Namespace: testHCPNamespace},
+				},
+			},
+			expectRemovals: 0,
+		},
+		{
+			name: "objects with finalizers",
+			ctrlObjects: []ctrlclient.Object{
+				&clusterv1beta1.Machine{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "machine-1",
+						Namespace:  testHCPNamespace,
+						Finalizers: []string{"f1"},
+					},
+				},
+				&capzv1beta1.AzureMachine{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "azure-machine-1",
+						Namespace:  testHCPNamespace,
+						Finalizers: []string{"f2"},
+					},
+				},
+			},
+			expectRemovals: 2,
+		},
+		{
+			name: "mixed - some with finalizers some without",
+			ctrlObjects: []ctrlclient.Object{
+				&clusterv1beta1.Machine{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "machine-1",
+						Namespace:  testHCPNamespace,
+						Finalizers: []string{"f1"},
+					},
+				},
+				&clusterv1beta1.Machine{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "machine-2",
+						Namespace: testHCPNamespace,
+					},
+				},
+			},
+			expectRemovals: 1,
+		},
+	}
+
+	t.Run("list error with unregistered type", func(t *testing.T) {
+		c := newControllerWithEmptyScheme(nil)
+		_, err := c.collectCloudFinalizerRemovals(context.Background(), testHCPNamespace, cloudFinalizerRemovalTypes)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newControllerWithFullScheme(nil, tt.ctrlObjects)
+
+			removals, err := c.collectCloudFinalizerRemovals(context.Background(), testHCPNamespace, cloudFinalizerRemovalTypes)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/openshift/hypershift/api/hypershift/v1beta1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
@@ -65,15 +64,14 @@ func (c *HCPRecoveryController) validateHostedCluster(ctx context.Context, recov
 
 	logger := klog.FromContext(ctx)
 
+	for _, condition := range recovery.Status.Conditions {
+		if condition.Type == hcprecoveryv1alpha1.ConditionHealthChecked && condition.Status == v1.ConditionTrue {
+			return false, nil, nil
+		}
+	}
+
 	hostedCluster, err := c.getHostedCluster(ctx, recovery.Spec.ClusterId)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Error(err, "HostedCluster not found")
-			return c.handlePermanentError(recovery, HealthCheckFailedCondition("HostedClusterNotFound",
-				fmt.Sprintf("HostedCluster not found for cluster %s", recovery.Spec.ClusterId),
-				recovery.Generation, time.Now(),
-			))
-		}
 		return false, nil, err
 	}
 	if hostedCluster == nil {
@@ -89,14 +87,10 @@ func (c *HCPRecoveryController) validateHostedCluster(ctx context.Context, recov
 			continue
 		}
 		if condition.Status != v1.ConditionTrue {
-			statusUpdate, needsUpdate := NewStatus(recovery.Status).
-				WithConditions(
-					HealthCheckFailedCondition("HostedClusterNotAvailable", fmt.Sprintf("HostedCluster %s Condition: %s is %s", recovery.Spec.ClusterId, v1beta1.HostedClusterAvailable, condition.Status), recovery.Generation, time.Now()),
-				).AsApplyConfiguration(recovery)
-			if needsUpdate {
-				return true, &actions{StatusUpdate: statusUpdate}, nil
-			}
-			return false, nil, nil
+			msg := fmt.Sprintf("HostedCluster %s Condition: %s is %s", recovery.Spec.ClusterId, v1beta1.HostedClusterAvailable, condition.Status)
+			return c.handleRetryableError(recovery,
+				HealthCheckFailedCondition("HostedClusterNotAvailable", msg, recovery.Generation, time.Now()),
+				fmt.Errorf("%s", msg))
 		}
 		statusUpdate, needsUpdate := NewStatus(recovery.Status).
 			WithConditions(
@@ -109,12 +103,8 @@ func (c *HCPRecoveryController) validateHostedCluster(ctx context.Context, recov
 	}
 
 	// HostedClusterAvailable condition not found
-	statusUpdate, needsUpdate := NewStatus(recovery.Status).
-		WithConditions(
-			HealthCheckFailedCondition("ConditionNotFound", fmt.Sprintf("HostedCluster %s does not have %s condition", recovery.Spec.ClusterId, v1beta1.HostedClusterAvailable), recovery.Generation, time.Now()),
-		).AsApplyConfiguration(recovery)
-	if needsUpdate {
-		return true, &actions{StatusUpdate: statusUpdate}, nil
-	}
-	return false, nil, nil
+	msg := fmt.Sprintf("HostedCluster %s does not have %s condition", recovery.Spec.ClusterId, v1beta1.HostedClusterAvailable)
+	return c.handleRetryableError(recovery,
+		HealthCheckFailedCondition("ConditionNotFound", msg, recovery.Generation, time.Now()),
+		fmt.Errorf("%s", msg))
 }

@@ -281,6 +281,12 @@ func (c *HCPRecoveryController) process(ctx context.Context, recovery *hcprecove
 	logger := klog.FromContext(ctx)
 	logger.V(4).Info("Reconciling HCPRecovery resource")
 
+	if recovery.Status.Phase == hcprecoveryv1alpha1.RestoreStateFailed ||
+		recovery.Status.Phase == hcprecoveryv1alpha1.RestoreStateCompleted {
+		logger.V(4).Info("Skipping reconciliation, recovery is in terminal phase", "phase", recovery.Status.Phase)
+		return nil, nil
+	}
+
 	steps := []recoveryStep{
 		c.validateBackup,
 		c.pauseBackupSchedule,
@@ -290,6 +296,7 @@ func (c *HCPRecoveryController) process(ctx context.Context, recovery *hcprecove
 		c.removeDeploymentResourceFinalizers,
 		c.waitForNamespaceDeletion,
 		c.createVeleroRestore,
+		// c.unpauseHostedCluster,
 		c.validateHostedCluster,
 		c.unpauseBackupSchedule,
 	}
@@ -298,6 +305,18 @@ func (c *HCPRecoveryController) process(ctx context.Context, recovery *hcprecove
 		if done {
 			return action, err
 		}
+	}
+
+	// All steps completed successfully
+	statusUpdate, needsUpdate := NewStatus(recovery.Status).
+		WithPhase(hcprecoveryv1alpha1.RestoreStateCompleted).
+		WithCompletedAt(metav1.Now()).
+		AsApplyConfiguration(recovery)
+	if needsUpdate {
+		return &actions{
+			StatusUpdate: statusUpdate,
+			Event:        event("RecoveryCompleted", "Recovery operation completed successfully"),
+		}, nil
 	}
 	return nil, nil
 }
@@ -314,7 +333,9 @@ func (c *HCPRecoveryController) handleTransientError(err error) (bool, *actions,
 // and on every relist interval.
 func (c *HCPRecoveryController) handlePermanentError(recovery *hcprecoveryv1alpha1.HCPRecovery, condition *applyv1.ConditionApplyConfiguration) (bool, *actions, error) {
 	statusUpdate, needsUpdate := NewStatus(recovery.Status).
-		WithConditions(condition).AsApplyConfiguration(recovery)
+		WithConditions(condition).
+		WithPhase(hcprecoveryv1alpha1.RestoreStateFailed).
+		AsApplyConfiguration(recovery)
 	if needsUpdate {
 		return true, &actions{StatusUpdate: statusUpdate}, nil
 	}
@@ -332,8 +353,14 @@ func (c *HCPRecoveryController) handleRetryableError(recovery *hcprecoveryv1alph
 	return true, nil, err
 }
 
-func restoreName(recoveryName string) string {
-	return fmt.Sprintf("restore-%s", recoveryName)
+func restoreName(recoveryName, uid string) string {
+	// Use a short suffix from the UID to ensure uniqueness across
+	// HCPRecovery CRs that share the same name.
+	short := uid
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	return fmt.Sprintf("restore-%s-%s", recoveryName, short)
 }
 
 func (c *HCPRecoveryController) getHostedCluster(ctx context.Context, clusterId string) (*v1beta1.HostedCluster, error) {

@@ -17,9 +17,19 @@ package v1alpha1
 
 // HCPRecoverySpecApplyConfiguration represents a declarative configuration of the HCPRecoverySpec type for use
 // with apply.
+//
+// HCPRecoverySpec defines the desired state of a recovery operation.
+// All fields are immutable after creation to ensure recovery operations
+// are auditable and cannot be modified mid-flight.
 type HCPRecoverySpecApplyConfiguration struct {
+	// clusterId is the identifier of the Hosted Cluster to recover.
+	// This is used to locate the HostedCluster and HCP resources
+	// on the management cluster.
 	ClusterId *string `json:"clusterId,omitempty"`
-	BackupId  *string `json:"backupId,omitempty"`
+	// backupId is the identifier of the Velero backup to restore from.
+	// The controller validates that this backup exists and is in a
+	// completed state before proceeding with the restore.
+	BackupId *string `json:"backupId,omitempty"`
 }
 
 // HCPRecoverySpecApplyConfiguration constructs a declarative configuration of the HCPRecoverySpec type for use with

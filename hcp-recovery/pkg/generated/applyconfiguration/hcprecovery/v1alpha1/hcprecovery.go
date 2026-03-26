@@ -23,11 +23,21 @@ import (
 
 // HCPRecoveryApplyConfiguration represents a declarative configuration of the HCPRecovery type for use
 // with apply.
+//
+// HCPRecovery represents a disaster recovery operation for a Hosted Control Plane.
+// It orchestrates the restoration of an HCP from a Velero backup, coordinating
+// the pause of the HostedCluster, deletion and recreation of the HCP namespace,
+// Velero restore execution, CAPI machine reconciliation, and post-restore health checks.
+// The spec is immutable after creation — to change recovery parameters, delete and recreate.
 type HCPRecoveryApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *HCPRecoverySpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                           *HCPRecoveryStatusApplyConfiguration `json:"status,omitempty"`
+	// spec defines the desired recovery operation, including the target cluster
+	// and backup to restore from. This field is immutable after creation.
+	Spec *HCPRecoverySpecApplyConfiguration `json:"spec,omitempty"`
+	// status contains the observed state of the recovery operation, including
+	// progress through each recovery step and timestamps.
+	Status *HCPRecoveryStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // HCPRecovery constructs a declarative configuration of the HCPRecovery type for use with
@@ -40,6 +50,7 @@ func HCPRecovery(name, namespace string) *HCPRecoveryApplyConfiguration {
 	b.WithAPIVersion("hcprecovery.aro-hcp.azure.com/v1alpha1")
 	return b
 }
+
 func (b HCPRecoveryApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

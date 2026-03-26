@@ -90,6 +90,11 @@ func conditionContentEqual(a, b *applyv1.ConditionApplyConfiguration) bool {
 	return true
 }
 
+func (s *Status) WithPhase(phase hcprecoveryv1alpha1.RestoreState) *Status {
+	s.applyConfig.WithPhase(phase)
+	return s
+}
+
 func (s *Status) WithStartedAt(t metav1.Time) *Status {
 	s.applyConfig.WithStartedAt(t)
 	return s
@@ -110,6 +115,11 @@ func (s *Status) WithCAPIMachineBackup(ref string) *Status {
 	return s
 }
 
+func (s *Status) WithRestoreName(name string) *Status {
+	s.applyConfig.WithRestoreName(name)
+	return s
+}
+
 // AsApplyConfiguration returns the apply configuration for the status and a boolean indicating
 // if the status needs to be updated. The needsUpdate check is required because the controller
 // uses an action-based reconciliation pattern where each sync loop performs at most one mutating
@@ -117,6 +127,10 @@ func (s *Status) WithCAPIMachineBackup(ref string) *Status {
 // it as the action for the current loop iteration, rather than falling through to the next step.
 func (s *Status) AsApplyConfiguration(recovery *hcprecoveryv1alpha1.HCPRecovery) (*hcprecoveryapply.HCPRecoveryApplyConfiguration, bool) {
 	var needsUpdate bool
+
+	if s.applyConfig.Phase != nil && *s.applyConfig.Phase != recovery.Status.Phase {
+		needsUpdate = true
+	}
 
 	if s.applyConfig.StartedAt != nil {
 		if recovery.Status.StartedAt == nil {
@@ -144,6 +158,11 @@ func (s *Status) AsApplyConfiguration(recovery *hcprecoveryv1alpha1.HCPRecovery)
 
 	if (s.applyConfig.CAPIMachineBackup != nil && *s.applyConfig.CAPIMachineBackup != recovery.Status.CAPIMachineBackup) ||
 		(s.applyConfig.CAPIMachineBackup == nil && recovery.Status.CAPIMachineBackup != "") {
+		needsUpdate = true
+	}
+
+	if (s.applyConfig.RestoreName != nil && *s.applyConfig.RestoreName != recovery.Status.RestoreName) ||
+		(s.applyConfig.RestoreName == nil && recovery.Status.RestoreName != "") {
 		needsUpdate = true
 	}
 
@@ -196,6 +215,9 @@ func conditionsEqual(applyConditions []applyv1.ConditionApplyConfiguration, stat
 func ApplyConfigForStatus(status hcprecoveryv1alpha1.HCPRecoveryStatus) *hcprecoveryapply.HCPRecoveryStatusApplyConfiguration {
 	cfg := hcprecoveryapply.HCPRecoveryStatus()
 
+	if status.Phase != "" {
+		cfg.WithPhase(status.Phase)
+	}
 	if status.StartedAt != nil {
 		cfg.WithStartedAt(*status.StartedAt)
 	}
@@ -207,6 +229,9 @@ func ApplyConfigForStatus(status hcprecoveryv1alpha1.HCPRecoveryStatus) *hcpreco
 	}
 	if status.CAPIMachineBackup != "" {
 		cfg.WithCAPIMachineBackup(status.CAPIMachineBackup)
+	}
+	if status.RestoreName != "" {
+		cfg.WithRestoreName(status.RestoreName)
 	}
 
 	conditions := make([]*applyv1.ConditionApplyConfiguration, 0, len(status.Conditions))

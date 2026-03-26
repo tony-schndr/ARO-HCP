@@ -17,7 +17,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,18 +25,16 @@ import (
 	hcprecoveryv1alpha1 "github.com/Azure/ARO-HCP/hcp-recovery/pkg/apis/hcprecovery/v1alpha1"
 )
 
-func (c *HCPRecoveryController) pauseHostedCluster(ctx context.Context, recovery *hcprecoveryv1alpha1.HCPRecovery) (bool, *actions, error) {
-	// Need to check for labels, the cluster is paused by another source, don't touch it.
-	// oadp.openshift.io/paused-at: "2026-03-17T18:29:23Z"
-	// oadp.openshift.io/paused-by: hypershift-oadp-plugin
-	// future versions of oadp do not pause anymore, need to look at hypershift operator to see if it pauses.
-	// Need to add a pause similar to above to indicate that the cluster was paused by the hcp-recovery controller
-
+// unpauseHostedCluster clears spec.pausedUntil and removes the paused-by/paused-at
+// annotations that were set by pauseHostedCluster. This must run after the Velero
+// restore completes so the HostedCluster can reconcile and become Available again.
+// The OADP plugin used to handle unpausing during restore, but that was removed
+// in OCPBUGS-77530, so the hcp-recovery controller must do it.
+func (c *HCPRecoveryController) unpauseHostedCluster(ctx context.Context, recovery *hcprecoveryv1alpha1.HCPRecovery) (bool, *actions, error) {
 	logger := klog.FromContext(ctx)
 
-	// if status == pause then skip to prevent a repause after restore.
 	for _, condition := range recovery.Status.Conditions {
-		if condition.Type == hcprecoveryv1alpha1.ConditionHostedClusterPaused && condition.Status == metav1.ConditionTrue {
+		if condition.Type == hcprecoveryv1alpha1.ConditionHostedClusterUnpaused && condition.Status == metav1.ConditionTrue {
 			return false, nil, nil
 		}
 	}
@@ -46,15 +43,15 @@ func (c *HCPRecoveryController) pauseHostedCluster(ctx context.Context, recovery
 	if err != nil {
 		logger.Error(err, "Error retrieving HostedCluster")
 		return c.handleRetryableError(recovery,
-			HostedClusterNotPausedCondition("HostedClusterRetrievalError",
+			HostedClusterNotUnpausedCondition("HostedClusterRetrievalError",
 				fmt.Sprintf("Error retrieving HostedCluster for cluster %s: %v", recovery.Spec.ClusterId, err),
 				recovery.Generation, time.Now()), err)
 	}
 	if hcp == nil {
-		logger.Info("HostedCluster not found, skipping pause", "clusterId", recovery.Spec.ClusterId)
+		logger.Info("HostedCluster not found, skipping unpause", "clusterId", recovery.Spec.ClusterId)
 		statusUpdate, needsUpdate := NewStatus(recovery.Status).
 			WithConditions(
-				HostedClusterPausedCondition(recovery.Generation, time.Now()),
+				HostedClusterUnpausedCondition(recovery.Generation, time.Now()),
 			).AsApplyConfiguration(recovery)
 		if needsUpdate {
 			return true, &actions{StatusUpdate: statusUpdate}, nil
@@ -62,10 +59,10 @@ func (c *HCPRecoveryController) pauseHostedCluster(ctx context.Context, recovery
 		return false, nil, nil
 	}
 
-	if hcp.Spec.PausedUntil != nil && strings.ToLower(*hcp.Spec.PausedUntil) == "true" {
+	if hcp.Spec.PausedUntil == nil {
 		statusUpdate, needsUpdate := NewStatus(recovery.Status).
 			WithConditions(
-				HostedClusterPausedCondition(recovery.Generation, time.Now()),
+				HostedClusterUnpausedCondition(recovery.Generation, time.Now()),
 			).AsApplyConfiguration(recovery)
 		if needsUpdate {
 			return true, &actions{StatusUpdate: statusUpdate}, nil
@@ -73,16 +70,12 @@ func (c *HCPRecoveryController) pauseHostedCluster(ctx context.Context, recovery
 		return false, nil, nil
 	}
 
-	pausedTrue := "true"
 	modified := hcp.DeepCopy()
-	modified.Spec.PausedUntil = &pausedTrue
-	if modified.Annotations == nil {
-		modified.Annotations = make(map[string]string)
-	}
-	modified.Annotations["hcp-recovery.openshift.io/paused-by"] = "hcp-recovery"
-	modified.Annotations["hcp-recovery.openshift.io/paused-at"] = time.Now().Format(time.RFC3339)
+	modified.Spec.PausedUntil = nil
+	delete(modified.Annotations, "hcp-recovery.openshift.io/paused-by")
+	delete(modified.Annotations, "hcp-recovery.openshift.io/paused-at")
 	return true, &actions{
 		PatchHostedCluster: &hostedClusterPatch{object: modified, base: hcp},
-		Event:              event("PausingCluster", "Pausing HostedCluster %s", recovery.Spec.ClusterId),
+		Event:              event("UnpausingCluster", "Unpausing HostedCluster %s", recovery.Spec.ClusterId),
 	}, nil
 }

@@ -25,6 +25,9 @@ spec:
       jsonPath: .status.startedAt
       name: Started
       type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
     - format: date-time
       jsonPath: .status.completedAt
       name: Completed
@@ -161,6 +164,22 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              phase:
+                description: |-
+                  phase represents the overall state of the recovery operation.
+                  When set to Failed or Completed, the controller will not reprocess the resource.
+                enum:
+                - InProgress
+                - Completed
+                - Failed
+                type: string
+              restoreName:
+                description: |-
+                  restoreName is the name of the Velero Restore created for this recovery.
+                  It is persisted to status before the restore is created to prevent
+                  duplicate restores if the controller crashes between creation and
+                  status update.
+                type: string
               restoredToTimestamp:
                 description: |-
                   restoredToTimestamp is the point-in-time that the backup represents,

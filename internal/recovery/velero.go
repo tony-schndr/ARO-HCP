@@ -22,6 +22,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+var restoreExcludedResources = []string{
+	"nodes",
+	"events",
+	"events.events.k8s.io",
+	"backups.velero.io",
+	"restores.velero.io",
+	"resticrepositories.velero.io",
+}
+
 var backupIncludedResources = []string{
 	"sa",
 	"role",
@@ -51,11 +60,21 @@ var backupIncludedResources = []string{
 	"clusterdeployment",
 }
 
+func NewRestore(restoreName, backupName string) *velerov1api.Restore {
+	restore := builder.ForRestore("velero", restoreName).
+		RestorePVs(true).
+		Backup(backupName).
+		ExistingResourcePolicy("update").
+		ExcludedResources(restoreExcludedResources...).
+		ItemOperationTimeout(4 * time.Hour)
+	return restore.Result()
+}
+
 func NewBackup(backupName, clusterId string, namespaces ...string) *velerov1api.Backup {
 	backup := builder.ForBackup("velero", backupName).
 		StorageLocation("default").
 		ObjectMeta(func(object metav1.Object) {
-			object.SetLabels(map[string]string{"api.openshift.com/id": clusterId}) // associates a backup with a cluster for filtering
+			object.SetLabels(map[string]string{"api.openshift.com/id": clusterId})
 		}).
 		IncludedNamespaces(namespaces...).
 		IncludedResources(backupIncludedResources...).
@@ -67,9 +86,19 @@ func NewBackup(backupName, clusterId string, namespaces ...string) *velerov1api.
 	return backup.Result()
 }
 
-func NewScheduledBackup(backupName, hcpNamespace, hcNamespace string) *velerov1api.Schedule {
-	backup := NewBackup(backupName, hcpNamespace, hcNamespace)
-	schedule := builder.ForSchedule("velero", backupName).
-		Template(backup.Spec)
+func NewScheduledBackup(clusterID, clusterName, hcNamespace, hcpNamespace string) *velerov1api.Schedule {
+	scheduleName := clusterID + "-hourly"
+	backup := NewBackup(scheduleName, clusterID, hcNamespace, hcpNamespace)
+	schedule := builder.ForSchedule("velero", scheduleName).
+		CronSchedule("0 */1 * * *").
+		Template(backup.Spec).
+		ObjectMeta(func(object metav1.Object) {
+			object.SetLabels(map[string]string{
+				"velero.io/storage-location":                       "default",
+				"hypershift.openshift.io/hosted-cluster":           clusterName,
+				"hypershift.openshift.io/hosted-cluster-namespace": hcNamespace,
+				"api.openshift.com/id":                             clusterID,
+			})
+		})
 	return schedule.Result()
 }

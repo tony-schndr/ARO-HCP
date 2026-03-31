@@ -29,7 +29,8 @@ import (
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	hcphandlers "github.com/Azure/ARO-HCP/admin/server/handlers/hcp"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
 	_ "github.com/Azure/ARO-HCP/internal/api/v20240610preview"
 	"github.com/Azure/ARO-HCP/internal/recovery"
 
@@ -166,7 +167,7 @@ func NewIntegrationTestInfoFromEnv(ctx context.Context, t *testing.T, withMock b
 		set.New("aro-sre-pso", "aro-sre-csa"),
 		metricsRegistry,
 		nil,
-		FakeDrFactory,
+		FakeMgmtClientFactory,
 	)
 
 	frontendURL := fmt.Sprintf("http://%s", frontendListener.Addr().String())
@@ -223,7 +224,7 @@ func AllAPIVersions() []string {
 	return versions
 }
 
-func FakeDrFactory(ctx context.Context, aksResourceID string, credential azcore.TokenCredential) (hcphandlers.BackupClient, error) {
+func FakeMgmtClientFactory(ctx context.Context, aksResourceID string, credential azcore.TokenCredential) (ctrlclient.Client, error) {
 	return recovery.NewFakeClient(
 		&velerov1api.Backup{
 			ObjectMeta: v1.ObjectMeta{

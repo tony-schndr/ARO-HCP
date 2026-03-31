@@ -78,7 +78,7 @@ func NewAdminAPI(
 	allowedBreakglassGroups set.Set[string],
 	gatherer prometheus.Gatherer,
 	azureCredential azcore.TokenCredential,
-	drClientFactory hcp.DrClientFactory,
+	mgmtClientFactory hcp.MgmtClientFactory,
 ) *AdminAPI {
 	// Pre-mux middleware (runs on all admin routes before pattern matching)
 	middlewareMux := middleware.NewMiddlewareMux(
@@ -114,15 +114,15 @@ func NewAdminAPI(
 	)
 	middlewareMux.Handle(
 		middleware.V1HCPResourcePattern("GET", "/backups"),
-		hcpMiddleware.Handler(hcp.ListBackups(dbClient, clustersServiceClient, azureCredential, drClientFactory)),
+		hcpMiddleware.Handler(hcp.ListBackups(dbClient, clustersServiceClient, azureCredential, mgmtClientFactory)),
 	)
 	middlewareMux.Handle(
 		middleware.V1HCPResourcePattern("GET", "/backups/{backupName}"),
-		hcpMiddleware.Handler(hcp.GetBackup(dbClient, clustersServiceClient, azureCredential, drClientFactory)),
+		hcpMiddleware.Handler(hcp.GetBackup(dbClient, clustersServiceClient, azureCredential, mgmtClientFactory)),
 	)
 	middlewareMux.Handle(
 		middleware.V1HCPResourcePattern("POST", "/backups"),
-		hcpMiddleware.Handler(hcp.CreateBackup(dbClient, clustersServiceClient, azureCredential, drClientFactory)),
+		hcpMiddleware.Handler(hcp.CreateBackup(dbClient, clustersServiceClient, azureCredential, mgmtClientFactory)),
 	)
 
 	// Non-HCP admin routes

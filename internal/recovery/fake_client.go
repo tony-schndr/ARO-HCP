@@ -20,12 +20,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func NewFakeClient(objs ...client.Object) (*DrClient, error) {
+func NewFakeClient(objs ...client.Object) (client.Client, error) {
 	scheme := runtime.NewScheme()
 	if err := AddToScheme(scheme); err != nil {
 		return nil, err
 	}
 
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
-	return NewDrClient(fakeClient), nil
+	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build(), nil
 }

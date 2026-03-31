@@ -359,7 +359,7 @@ func (opts *Options) Run(ctx context.Context) error {
 		opts.AllowedBreakglassGroups,
 		opts.Registry,
 		opts.AzureCredential,
-		hcp.DefaultDrClientFactory,
+		hcp.DefaultMgmtClientFactory,
 	)
 
 	runErrCh := make(chan error, 1)

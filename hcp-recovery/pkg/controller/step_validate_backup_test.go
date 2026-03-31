@@ -17,6 +17,7 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,8 +28,10 @@ import (
 
 const testBackupId = "test-backup"
 
+var testBackupCompletionTime = metav1.NewTime(time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC))
+
 func newVeleroBackup(name, clusterId string, phase velerov1api.BackupPhase) *velerov1api.Backup {
-	return &velerov1api.Backup{
+	backup := &velerov1api.Backup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: "velero",
@@ -38,6 +41,10 @@ func newVeleroBackup(name, clusterId string, phase velerov1api.BackupPhase) *vel
 			Phase: phase,
 		},
 	}
+	if phase == velerov1api.BackupPhaseCompleted {
+		backup.Status.CompletionTimestamp = &testBackupCompletionTime
+	}
+	return backup
 }
 
 func TestValidateBackup(t *testing.T) {
@@ -61,6 +68,7 @@ func TestValidateBackup(t *testing.T) {
 					ObservedGeneration: 1,
 				})
 				r.Spec.BackupId = testBackupId
+				r.Status.RestoredToTimestamp = &testBackupCompletionTime
 				return r
 			}(),
 			ctrlObjects: []ctrlclient.Object{
@@ -171,6 +179,17 @@ func TestValidateBackup(t *testing.T) {
 			if action != nil {
 				if tt.expectStatusUpdate && action.StatusUpdate == nil {
 					t.Error("expected StatusUpdate action, got nil")
+				}
+			}
+
+			if tt.name == "backup valid and completed" {
+				if action == nil || action.StatusUpdate == nil {
+					t.Fatal("expected action with StatusUpdate")
+				}
+				if action.StatusUpdate.Status.RestoredToTimestamp == nil {
+					t.Error("expected RestoredToTimestamp to be set from backup CompletionTimestamp")
+				} else if !action.StatusUpdate.Status.RestoredToTimestamp.Equal(&testBackupCompletionTime) {
+					t.Errorf("expected RestoredToTimestamp=%v, got %v", testBackupCompletionTime, *action.StatusUpdate.Status.RestoredToTimestamp)
 				}
 			}
 		})

@@ -287,6 +287,18 @@ func (c *HCPRecoveryController) process(ctx context.Context, recovery *hcprecove
 		return nil, nil
 	}
 
+	if recovery.Status.StartedAt == nil {
+		statusUpdate, needsUpdate := NewStatus(recovery.Status).
+			WithStartedAt(metav1.Now()).
+			AsApplyConfiguration(recovery)
+		if needsUpdate {
+			return &actions{
+				StatusUpdate: statusUpdate,
+				Event:        event("RecoveryStarted", "Recovery operation started"),
+			}, nil
+		}
+	}
+
 	steps := []recoveryStep{
 		c.validateBackup,
 		c.pauseBackupSchedule,

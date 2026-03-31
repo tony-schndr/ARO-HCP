@@ -63,7 +63,9 @@ func (c *HCPRecoveryController) validateBackup(ctx context.Context, recovery *hc
 	statusUpdate, needsUpdate := NewStatus(recovery.Status).
 		WithConditions(
 			BackupValidatedCondition(recovery.Generation, time.Now()),
-		).AsApplyConfiguration(recovery)
+		).
+		WithRestoredToTimestamp(*veleroBackup.Status.CompletionTimestamp).
+		AsApplyConfiguration(recovery)
 	if needsUpdate {
 		return true, &actions{StatusUpdate: statusUpdate}, nil
 	}

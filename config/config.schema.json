@@ -1433,6 +1433,14 @@
         "maestro": {
           "$ref": "#/definitions/backendMaestroConfig"
         },
+        "backupSchedule": {
+          "type": "string",
+          "description": "Cron schedule for Velero backup schedules created for each cluster"
+        },
+        "backupTTL": {
+          "type": "string",
+          "description": "TTL for Velero backups created by the backup schedule, as a Go duration string (e.g. 168h, 1h)"
+        },
         "exitOnPanic": {
           "type": "boolean",
           "description": "If true, backend will exit the process if a panic occurs. As of now it only controls the setting of k8s.io/apimachinery/pkg/util/runtime.ReallyCrash"
@@ -1449,6 +1457,8 @@
         "managedIdentityName",
         "azureRuntimeConfig",
         "maestro",
+        "backupSchedule",
+        "backupTTL",
         "exitOnPanic",
         "clusterScopedIdentitiesConfig"
       ]

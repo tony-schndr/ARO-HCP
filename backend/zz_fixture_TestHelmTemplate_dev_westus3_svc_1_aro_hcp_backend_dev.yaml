@@ -44,6 +44,8 @@ data:
   BACKEND_MI_CLIENT_ID: '__backendMsiClientId__'
   CURRENT_VERSION: ''
   LOCATION: 'westus3'
+  BACKUP_SCHEDULE: '0 */1 * * *'
+  BACKUP_TTL: '168h'
 ---
 # Source: backend/templates/leader-election.role.yaml
 apiVersion: rbac.authorization.k8s.io/v1

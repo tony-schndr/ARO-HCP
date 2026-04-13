@@ -9,3 +9,5 @@ data:
   BACKEND_MI_CLIENT_ID: '{{ .Values.configMap.backendMiClientId }}'
   CURRENT_VERSION: '{{ .Values.configMap.currentVersion }}'
   LOCATION: '{{ .Values.configMap.location }}'
+  BACKUP_SCHEDULE: '{{ .Values.configMap.backupSchedule }}'
+  BACKUP_TTL: '{{ .Values.configMap.backupTTL }}'

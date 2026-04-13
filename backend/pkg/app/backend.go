@@ -36,6 +36,7 @@ import (
 
 	azureclient "github.com/Azure/ARO-HCP/backend/pkg/azure/client"
 	"github.com/Azure/ARO-HCP/backend/pkg/controllers"
+	"github.com/Azure/ARO-HCP/backend/pkg/controllers/backupcontroller"
 	"github.com/Azure/ARO-HCP/backend/pkg/controllers/billingcontrollers"
 	"github.com/Azure/ARO-HCP/backend/pkg/controllers/clusterpropertiescontroller"
 	"github.com/Azure/ARO-HCP/backend/pkg/controllers/controllerutils"
@@ -72,6 +73,9 @@ type BackendOptions struct {
 	FPAClientBuilder                   azureclient.FirstPartyApplicationClientBuilder
 	BackendIdentityAzureClients        *azureclient.BackendIdentityAzureClients
 	ExitOnPanic                        bool
+	BackupSchedule                     string
+	BackupTTL                          time.Duration
+	BackupGlobalPause                  bool
 	FPAMIDataplaneClientBuilder        azureclient.FPAMIDataplaneClientBuilder
 	SMIClientBuilder                   azureclient.ServiceManagedIdentityClientBuilder
 	CheckAccessV2ClientBuilder         azureclient.CheckAccessV2ClientBuilder
@@ -452,6 +456,18 @@ func (b *Backend) runBackendControllersUnderLeaderElection(ctx context.Context, 
 		activeOperationLister,
 		backendInformers,
 	)
+	backupScheduleController := backupcontroller.NewBackupScheduleController(
+		activeOperationLister, b.options.CosmosDBClient, b.options.ClustersServiceClient,
+		backendInformers, b.options.MaestroSourceEnvironmentIdentifier, maestroClientBuilder,
+		b.options.BackupSchedule, b.options.BackupTTL, b.options.BackupGlobalPause,
+	)
+	deleteOrphanedBackupMWController := backupcontroller.NewDeleteOrphanedBackupManifestWorksController(
+		b.options.CosmosDBClient,
+		b.options.ClustersServiceClient,
+		maestroClientBuilder,
+		b.options.MaestroSourceEnvironmentIdentifier,
+	)
+
 	maestroCreateReadonlyBundlesController := controllers.NewCreateClusterScopedMaestroReadonlyBundlesController(
 		activeOperationLister, b.options.CosmosDBClient, b.options.ClustersServiceClient,
 		backendInformers, b.options.MaestroSourceEnvironmentIdentifier, maestroClientBuilder,
@@ -564,6 +580,8 @@ func (b *Backend) runBackendControllersUnderLeaderElection(ctx context.Context, 
 				go triggerNodePoolUpgradeController.Run(ctx, 20)
 				go nodePoolPropertiesSyncController.Run(ctx, 20)
 				go nodePoolCustomerPropertiesMigrationController.Run(ctx, 20)
+				go backupScheduleController.Run(ctx, 20)
+				go deleteOrphanedBackupMWController.Run(ctx, 20)
 			},
 			OnStoppedLeading: func() {
 				// This needs to be defined even though it does nothing.

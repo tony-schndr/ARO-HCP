@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
@@ -62,6 +63,9 @@ type BackendRootCmdFlags struct {
 	InsecureIgnoreUserAzureManagedIdentitiesThatNeedManagedIdentitiesDataplaneAvailableAndUseMock bool
 	ExitOnPanic                                                                                   bool
 	AzureClusterScopedIdentitiesRoleSetName                                                       string
+	BackupSchedule                                                                                string
+	BackupTTL                                                                                     time.Duration
+	BackupGlobalPause                                                                             bool
 }
 
 func (f *BackendRootCmdFlags) AddFlags(cmd *cobra.Command) {
@@ -192,6 +196,13 @@ func (f *BackendRootCmdFlags) AddFlags(cmd *cobra.Command) {
 		f.AzureClusterScopedIdentitiesRoleSetName,
 		"The name of the cluster scoped identities role set to use. It is used to select the appropriate set of operator role definitions associated to the cluster scoped identities. Accepted values: [dev, public].",
 	)
+
+	cmd.Flags().StringVar(&f.BackupSchedule, "backup-schedule", f.BackupSchedule,
+		"Cron schedule for Velero backup schedules created for each cluster")
+	cmd.Flags().DurationVar(&f.BackupTTL, "backup-ttl", f.BackupTTL,
+		"TTL for Velero backups created by the backup schedule")
+	cmd.Flags().BoolVar(&f.BackupGlobalPause, "backup-global-pause", f.BackupGlobalPause,
+		"When set, all backup schedules are paused regardless of individual BackupProfile state (breakglass)")
 
 	cmd.MarkFlagsRequiredTogether("cosmos-name", "cosmos-url")
 }
@@ -395,6 +406,9 @@ func (f *BackendRootCmdFlags) ToBackendOptions(ctx context.Context, cmd *cobra.C
 		FPAClientBuilder:                   fpaClientBuilder,
 		BackendIdentityAzureClients:        backendIdentityAzureClients,
 		ExitOnPanic:                        f.ExitOnPanic,
+		BackupSchedule:                     f.BackupSchedule,
+		BackupTTL:                          f.BackupTTL,
+		BackupGlobalPause:                  f.BackupGlobalPause,
 		FPAMIDataplaneClientBuilder:        fpaMIDataplaneClientBuilder,
 		SMIClientBuilder:                   smiClientBuilder,
 		CheckAccessV2ClientBuilder:         checkAccessV2ClientBuilder,
@@ -420,6 +434,9 @@ func NewBackendRootCmdFlags() *BackendRootCmdFlags {
 		LogVerbosity:                                    0,
 		MaestroSourceEnvironmentIdentifier:              "",
 		ExitOnPanic:                                     true,
+		BackupSchedule:                                  backupScheduleDefault(),
+		BackupTTL:                                       backupTTLDefault(),
+		BackupGlobalPause:                               backupGlobalPauseDefault(),
 	}
 
 	return flags
@@ -497,4 +514,25 @@ func RunRootCmd(cmd *cobra.Command, flags *BackendRootCmdFlags) error {
 	}
 
 	return nil
+}
+
+func backupScheduleDefault() string {
+	if v := os.Getenv("BACKUP_SCHEDULE"); v != "" {
+		return v
+	}
+	return "0 */1 * * *"
+}
+
+func backupTTLDefault() time.Duration {
+	if v := os.Getenv("BACKUP_TTL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err == nil {
+			return d
+		}
+	}
+	return 7 * 24 * time.Hour
+}
+
+func backupGlobalPauseDefault() bool {
+	return os.Getenv("BACKUP_GLOBAL_PAUSE") == "true"
 }

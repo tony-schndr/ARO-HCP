@@ -105,6 +105,16 @@ spec:
             configMapKeyRef:
               name: backend-config
               key: LOCATION
+        - name: BACKUP_SCHEDULE
+          valueFrom:
+            configMapKeyRef:
+              name: backend-config
+              key: BACKUP_SCHEDULE
+        - name: BACKUP_TTL
+          valueFrom:
+            configMapKeyRef:
+              name: backend-config
+              key: BACKUP_TTL
         - name: NAMESPACE
           valueFrom:
             fieldRef:

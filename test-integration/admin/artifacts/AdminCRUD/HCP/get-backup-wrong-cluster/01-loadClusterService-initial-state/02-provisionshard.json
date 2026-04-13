@@ -1,0 +1,9 @@
+{
+    "_cluster_href": "/api/aro_hcp/v1alpha1/clusters/other-value",
+    "azure_shard": {
+        "aks_management_cluster_resource_id": "fake-aks-resource-id"
+    },
+    "href": "/api/aro_hcp/v1alpha1/provision_shards/fake-shard",
+    "id": "fake-shard",
+    "kind": "ProvisionShard"
+}

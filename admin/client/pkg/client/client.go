@@ -18,15 +18,25 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httputil"
+	"os"
+	"strings"
 
 	"github.com/go-logr/logr"
 )
 
 type Client interface {
 	HelloWorld(ctx context.Context) error
+	ListBackups(ctx context.Context, subscriptionID, resourceGroup, clusterName string) error
+	GetBackup(ctx context.Context, subscriptionID, resourceGroup, clusterName, backupName string) error
+	CreateBackup(ctx context.Context, subscriptionID, resourceGroup, clusterName string) error
+	GetBackupProfile(ctx context.Context, subscriptionID, resourceGroup, clusterName string) error
+	PatchBackupProfile(ctx context.Context, subscriptionID, resourceGroup, clusterName, state string) error
 }
 
 type httpClient interface {
@@ -99,6 +109,32 @@ func (d *debuggingRoundTripper) Do(request *http.Request) (*http.Response, error
 
 var _ httpClient = (*debuggingRoundTripper)(nil)
 
+// principalFromJWT extracts the principal name from a JWT token by
+// base64-decoding the payload. In production, the Istio ext-authz (MISE)
+// validates the token and injects X-Ms-Client-Principal-Name. This function
+// simulates that behavior for environments without ext-authz.
+func principalFromJWT(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		AppID string `json:"appid"`
+		OID   string `json:"oid"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+	if claims.AppID != "" {
+		return claims.AppID
+	}
+	return claims.OID
+}
+
 func (c *client) newGetRequest(ctx context.Context, resource string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s%s", c.endpoint, resource), http.NoBody)
 	if err != nil {
@@ -106,6 +142,38 @@ func (c *client) newGetRequest(ctx context.Context, resource string) (*http.Requ
 	}
 	req.Host = c.hostHeader
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
+	if principal := principalFromJWT(c.token); principal != "" {
+		req.Header.Set("X-Ms-Client-Principal-Name", principal)
+	}
+
+	return req, nil
+}
+
+func (c *client) newPostRequest(ctx context.Context, resource string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s%s", c.endpoint, resource), http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Host = c.hostHeader
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
+	if principal := principalFromJWT(c.token); principal != "" {
+		req.Header.Set("X-Ms-Client-Principal-Name", principal)
+	}
+
+	return req, nil
+}
+
+func (c *client) newPatchRequest(ctx context.Context, resource string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, fmt.Sprintf("%s%s", c.endpoint, resource), body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Host = c.hostHeader
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
+	req.Header.Set("Content-Type", "application/json")
+	if principal := principalFromJWT(c.token); principal != "" {
+		req.Header.Set("X-Ms-Client-Principal-Name", principal)
+	}
 
 	return req, nil
 }
@@ -133,5 +201,196 @@ func (c *client) HelloWorld(ctx context.Context) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to get hello world: %d", resp.StatusCode)
 	}
+	return nil
+}
+
+func (c *client) ListBackups(ctx context.Context, subscriptionID, resourceGroup, clusterName string) error {
+	logger, err := logr.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+
+	resource := fmt.Sprintf(
+		"/admin/v1/hcp/subscriptions/%s/resourcegroups/%s/providers/Microsoft.RedHatOpenShift/hcpOpenShiftClusters/%s/backups",
+		subscriptionID, resourceGroup, clusterName,
+	)
+	req, err := c.newGetRequest(ctx, resource)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request %s: %w", req.URL.String(), err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Error(err, "Failed to close body.")
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to list backups (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	if _, err := io.Copy(os.Stdout, resp.Body); err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return nil
+}
+
+func (c *client) GetBackup(ctx context.Context, subscriptionID, resourceGroup, clusterName, backupName string) error {
+	logger, err := logr.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+
+	resource := fmt.Sprintf(
+		"/admin/v1/hcp/subscriptions/%s/resourcegroups/%s/providers/Microsoft.RedHatOpenShift/hcpOpenShiftClusters/%s/backups/%s",
+		subscriptionID, resourceGroup, clusterName, backupName,
+	)
+	req, err := c.newGetRequest(ctx, resource)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request %s: %w", req.URL.String(), err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Error(err, "Failed to close body.")
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to get backup (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	if _, err := io.Copy(os.Stdout, resp.Body); err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return nil
+}
+
+func (c *client) CreateBackup(ctx context.Context, subscriptionID, resourceGroup, clusterName string) error {
+	logger, err := logr.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+
+	resource := fmt.Sprintf(
+		"/admin/v1/hcp/subscriptions/%s/resourcegroups/%s/providers/Microsoft.RedHatOpenShift/hcpOpenShiftClusters/%s/backups",
+		subscriptionID, resourceGroup, clusterName,
+	)
+	req, err := c.newPostRequest(ctx, resource)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request %s: %w", req.URL.String(), err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Error(err, "Failed to close body.")
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to create backup (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	if _, err := io.Copy(os.Stdout, resp.Body); err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return nil
+}
+
+func (c *client) GetBackupProfile(ctx context.Context, subscriptionID, resourceGroup, clusterName string) error {
+	logger, err := logr.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+
+	resource := fmt.Sprintf(
+		"/admin/v1/hcp/subscriptions/%s/resourcegroups/%s/providers/Microsoft.RedHatOpenShift/hcpOpenShiftClusters/%s/backupProfile",
+		subscriptionID, resourceGroup, clusterName,
+	)
+	req, err := c.newGetRequest(ctx, resource)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request %s: %w", req.URL.String(), err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Error(err, "Failed to close body.")
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to get backup profile (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	if _, err := io.Copy(os.Stdout, resp.Body); err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return nil
+}
+
+func (c *client) PatchBackupProfile(ctx context.Context, subscriptionID, resourceGroup, clusterName, state string) error {
+	logger, err := logr.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+
+	resource := fmt.Sprintf(
+		"/admin/v1/hcp/subscriptions/%s/resourcegroups/%s/providers/Microsoft.RedHatOpenShift/hcpOpenShiftClusters/%s/backupProfile",
+		subscriptionID, resourceGroup, clusterName,
+	)
+
+	body, err := json.Marshal(map[string]string{"state": state})
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	req, err := c.newPatchRequest(ctx, resource, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request %s: %w", req.URL.String(), err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Error(err, "Failed to close body.")
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to patch backup profile (%d): %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	if _, err := io.Copy(os.Stdout, resp.Body); err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
 	return nil
 }

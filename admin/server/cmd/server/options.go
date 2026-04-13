@@ -30,14 +30,17 @@ import (
 
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	utilsclock "k8s.io/utils/clock"
 	"k8s.io/utils/set"
 
 	"github.com/Azure/azure-kusto-go/kusto"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 
 	sdk "github.com/openshift-online/ocm-sdk-go"
 
+	"github.com/Azure/ARO-HCP/admin/server/handlers/hcp"
 	"github.com/Azure/ARO-HCP/admin/server/server"
 	"github.com/Azure/ARO-HCP/internal/audit"
 	"github.com/Azure/ARO-HCP/internal/certificate"
@@ -147,6 +150,7 @@ type completedOptions struct {
 	MaxSessionTTL           time.Duration
 	AllowedBreakglassGroups set.Set[string]
 	Registry                *prometheus.Registry
+	AzureCredential         azcore.TokenCredential
 }
 
 type Options struct {
@@ -278,6 +282,11 @@ func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
 
 	sessionClient := sessiongateClientset.SessiongateV1alpha1().Sessions(o.SessiongateNamespace)
 
+	azCredential, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Azure credential: %w", err)
+	}
+
 	return &Options{
 		completedOptions: &completedOptions{
 			Port:                    o.Port,
@@ -294,6 +303,7 @@ func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
 			MaxSessionTTL:           o.MaxSessionTTL,
 			AllowedBreakglassGroups: set.New[string](o.AllowedBreakglassGroups...),
 			Registry:                registry,
+			AzureCredential:         azCredential,
 		},
 	}, nil
 }
@@ -348,6 +358,9 @@ func (opts *Options) Run(ctx context.Context) error {
 		opts.MaxSessionTTL,
 		opts.AllowedBreakglassGroups,
 		opts.Registry,
+		opts.AzureCredential,
+		hcp.DefaultMgmtClientFactory,
+		utilsclock.RealClock{},
 	)
 
 	runErrCh := make(chan error, 1)

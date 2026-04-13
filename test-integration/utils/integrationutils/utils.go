@@ -24,6 +24,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	hypershiftv1beta1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
+	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clocktesting "k8s.io/utils/clock/testing"
+
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	_ "github.com/Azure/ARO-HCP/internal/api/v20240610preview"
+	"github.com/Azure/ARO-HCP/internal/recovery"
+
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/testr"
 	"github.com/microsoft/go-otel-audit/audit/base"
@@ -131,6 +142,36 @@ func NewIntegrationTestInfoFromEnv(ctx context.Context, t *testing.T, withMock b
 	metricsRegistry := prometheus.NewRegistry()
 	aroHCPFrontend := frontend.NewFrontend(logger, frontendListener, frontendMetricsListener, metricsRegistry, storageIntegrationTestInfo.CosmosClient(), clusterServiceMockInfo.MockClusterServiceClient, fakeAuditClient, "fake-location", "", false, false, true)
 
+	fakeClock := clocktesting.NewFakePassiveClock(time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC))
+
+	// create a single fake management cluster client so state persists across
+	// HTTP calls within the same test case (e.g. POST then GET).
+	fakeMgmtClient, err := recovery.NewFakeClient(
+		&velerov1api.Backup{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-backup-1",
+				Namespace: "velero",
+				Labels:    map[string]string{"api.openshift.com/id": "fixed-value"},
+			},
+			Status: velerov1api.BackupStatus{
+				Phase: velerov1api.BackupPhaseCompleted,
+			},
+		},
+		&hypershiftv1beta1.HostedCluster{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-hosted-cluster",
+				Namespace: "test-namespace",
+				Labels:    map[string]string{"api.openshift.com/id": "fixed-value"},
+			},
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	fakeMgmtClientFactory := func(ctx context.Context, aksResourceID string, credential azcore.TokenCredential) (ctrlclient.Client, error) {
+		return fakeMgmtClient, nil
+	}
+
 	// admin api setup
 	adminListener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -156,6 +197,9 @@ func NewIntegrationTestInfoFromEnv(ctx context.Context, t *testing.T, withMock b
 		24*time.Hour,
 		set.New("aro-sre-pso", "aro-sre-csa"),
 		metricsRegistry,
+		nil,
+		fakeMgmtClientFactory,
+		fakeClock,
 	)
 
 	frontendURL := fmt.Sprintf("http://%s", frontendListener.Addr().String())

@@ -1420,6 +1420,14 @@ func (in *ServiceProviderClusterStatus) DeepCopyInto(out *ServiceProviderCluster
 		in, out := &in.ManagementClusterResourceID, &out.ManagementClusterResourceID
 		*out = arm.DeepCopyResourceID(*in)
 	}
+	if in.RecoveryStartedAt != nil {
+		in, out := &in.RecoveryStartedAt, &out.RecoveryStartedAt
+		*out = (*in).DeepCopy()
+	}
+	if in.RecoveryCompletedAt != nil {
+		in, out := &in.RecoveryCompletedAt, &out.RecoveryCompletedAt
+		*out = (*in).DeepCopy()
+	}
 	return
 }
 

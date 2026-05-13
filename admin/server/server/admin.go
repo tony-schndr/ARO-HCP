@@ -145,6 +145,14 @@ func NewAdminAPI(
 		middleware.V1HCPResourcePattern("PATCH", "/backupprofile"),
 		hcpMiddleware.Handler(hcp.PatchBackupProfile(resourcesDBClient)),
 	)
+	middlewareMux.Handle(
+		middleware.V1HCPResourcePattern("POST", "/restore"),
+		hcpMiddleware.Handler(hcp.PostRestore(resourcesDBClient)),
+	)
+	middlewareMux.Handle(
+		middleware.V1HCPResourcePattern("GET", "/restore"),
+		hcpMiddleware.Handler(hcp.GetRestoreStatus(resourcesDBClient)),
+	)
 
 	// Non-HCP admin routes
 	middlewareMux.Handle("GET /admin/helloworld", handlers.HelloWorldHandler())

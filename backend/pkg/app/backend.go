@@ -45,6 +45,7 @@ import (
 	"github.com/Azure/ARO-HCP/backend/pkg/controllers/metricscontrollers"
 	"github.com/Azure/ARO-HCP/backend/pkg/controllers/mismatchcontrollers"
 	"github.com/Azure/ARO-HCP/backend/pkg/controllers/operationcontrollers"
+	"github.com/Azure/ARO-HCP/backend/pkg/controllers/recoverycontroller"
 	"github.com/Azure/ARO-HCP/backend/pkg/controllers/upgradecontrollers"
 	"github.com/Azure/ARO-HCP/backend/pkg/controllers/validationcontrollers"
 	"github.com/Azure/ARO-HCP/backend/pkg/controllers/validationcontrollers/validations"
@@ -531,6 +532,10 @@ func (b *Backend) runBackendControllersUnderLeaderElection(ctx context.Context, 
 		backendInformers, b.options.MaestroSourceEnvironmentIdentifier, maestroClientBuilder,
 		b.options.BackupConfig,
 	)
+	recoveryController := recoverycontroller.NewRecoveryController(
+		activeOperationLister, b.options.ResourcesDBClient, b.options.ClustersServiceClient,
+		backendInformers, b.options.MaestroSourceEnvironmentIdentifier, maestroClientBuilder,
+	)
 	deleteOrphanedBackupMWController := backupcontroller.NewDeleteOrphanedBackupManifestWorksController(
 		b.options.ResourcesDBClient,
 		b.options.ClustersServiceClient,
@@ -669,6 +674,7 @@ func (b *Backend) runBackendControllersUnderLeaderElection(ctx context.Context, 
 				go placementSyncController.Run(ctx, 20)
 				go backupScheduleController.Run(ctx, 20)
 				go deleteOrphanedBackupMWController.Run(ctx, 20)
+				go recoveryController.Run(ctx, 20)
 			},
 			OnStoppedLeading: func() {
 				// This needs to be defined even though it does nothing.

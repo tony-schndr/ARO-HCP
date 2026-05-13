@@ -37,6 +37,19 @@ const (
 	BackupScheduleStatePaused BackupScheduleState = "Paused"
 )
 
+// RecoveryState represents the progress of a recovery operation for a cluster.
+type RecoveryState string
+
+const (
+	RecoveryStatePending           RecoveryState = "Pending"
+	RecoveryStateReadOnlyPending   RecoveryState = "ReadOnlyPending"
+	RecoveryStateRecoveryCRCreated RecoveryState = "RecoveryCRCreated"
+	RecoveryStateMonitoring        RecoveryState = "Monitoring"
+	RecoveryStateRestoring         RecoveryState = "Restoring"
+	RecoveryStateCompleted         RecoveryState = "Completed"
+	RecoveryStateFailed            RecoveryState = "Failed"
+)
+
 const (
 	// ServiceProviderClusterResourceName is the name of the ServiceProviderCluster resource.
 	// ServiceProviderCluster is a singleton resource and ARM convention is to
@@ -147,6 +160,24 @@ type ServiceProviderClusterStatus struct {
 	// this HCP is placed on. Nil means placement has not been resolved yet.
 	// Once set, this field is immutable.
 	ManagementClusterResourceID *azcorearm.ResourceID `json:"managementClusterResourceID,omitempty"`
+
+	// RecoveryState tracks the overall progress of a recovery operation.
+	// Empty string means no recovery is active.
+	RecoveryState RecoveryState `json:"recoveryState,omitempty"`
+	// RecoveryBackupID is the backup ID to restore from, set by the admin-api.
+	RecoveryBackupID string `json:"recoveryBackupID,omitempty"`
+	// RecoveryManifestWorkName is the Maestro ManifestWork carrying the HCPRecovery CR.
+	RecoveryManifestWorkName string `json:"recoveryManifestWorkName,omitempty"`
+	// RecoveryPhase is the phase of the HCPRecovery CR on the management cluster.
+	RecoveryPhase string `json:"recoveryPhase,omitempty"`
+	// RecoveryStartedAt is when the recovery operation was initiated.
+	RecoveryStartedAt *metav1.Time `json:"recoveryStartedAt,omitempty"`
+	// RecoveryCompletedAt is when the recovery operation finished (success or failure).
+	RecoveryCompletedAt *metav1.Time `json:"recoveryCompletedAt,omitempty"`
+	// RecoveryLastConditionType is the most recent HCPRecovery condition type observed as True.
+	RecoveryLastConditionType string `json:"recoveryLastConditionType,omitempty"`
+	// RecoveryLastConditionMessage is the message of the most recently completed condition.
+	RecoveryLastConditionMessage string `json:"recoveryLastConditionMessage,omitempty"`
 }
 
 // ServiceProviderClusterStatusVersion contains the actual version information.

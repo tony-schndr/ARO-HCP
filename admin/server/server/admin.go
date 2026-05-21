@@ -27,9 +27,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	utilsclock "k8s.io/utils/clock"
 	"k8s.io/utils/set"
 
 	"github.com/Azure/azure-kusto-go/kusto"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 
 	"github.com/Azure/ARO-HCP/admin/server/handlers"
 	"github.com/Azure/ARO-HCP/admin/server/handlers/cosmosdump"
@@ -80,6 +82,10 @@ func NewAdminAPI(
 	maxSessionTTL time.Duration,
 	allowedBreakglassGroups set.Set[string],
 	gatherer prometheus.Gatherer,
+	azureCredential azcore.TokenCredential,
+	mgmtClientFactory hcp.MgmtClientFactory,
+	clock utilsclock.PassiveClock,
+	veleroShardCount int,
 ) *AdminAPI {
 	// Pre-mux middleware (runs on all admin routes before pattern matching)
 	middlewareMux := middleware.NewMiddlewareMux(
@@ -120,6 +126,26 @@ func NewAdminAPI(
 	middlewareMux.Handle(
 		middleware.V1HCPResourcePattern("GET", "/serialconsole"),
 		hcpMiddleware.HandlerFunc(errorutils.ReportError(hcp.NewHCPSerialConsoleHandler(resourcesDBClient, fpaCredentialRetriever).ServeHTTP)),
+	)
+	middlewareMux.Handle(
+		middleware.V1HCPResourcePattern("GET", "/backups"),
+		hcpMiddleware.Handler(hcp.ListBackups(resourcesDBClient, fleetDBClient, azureCredential, mgmtClientFactory, clock, veleroShardCount)),
+	)
+	middlewareMux.Handle(
+		middleware.V1HCPResourcePattern("GET", "/backups/{backupName}"),
+		hcpMiddleware.Handler(hcp.GetBackup(resourcesDBClient, fleetDBClient, azureCredential, mgmtClientFactory, clock, veleroShardCount)),
+	)
+	middlewareMux.Handle(
+		middleware.V1HCPResourcePattern("POST", "/backups"),
+		hcpMiddleware.Handler(hcp.CreateBackup(resourcesDBClient, fleetDBClient, azureCredential, mgmtClientFactory, clock, veleroShardCount)),
+	)
+	middlewareMux.Handle(
+		middleware.V1HCPResourcePattern("GET", "/backupprofile"),
+		hcpMiddleware.Handler(hcp.GetBackupProfile(resourcesDBClient)),
+	)
+	middlewareMux.Handle(
+		middleware.V1HCPResourcePattern("PATCH", "/backupprofile"),
+		hcpMiddleware.Handler(hcp.PatchBackupProfile(resourcesDBClient)),
 	)
 
 	// Non-HCP admin routes

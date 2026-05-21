@@ -30,13 +30,17 @@ import (
 
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	utilsclock "k8s.io/utils/clock"
 	"k8s.io/utils/set"
 
 	"github.com/Azure/azure-kusto-go/kusto"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 
 	sdk "github.com/openshift-online/ocm-sdk-go"
 
+	"github.com/Azure/ARO-HCP/admin/server/handlers/hcp"
 	"github.com/Azure/ARO-HCP/admin/server/server"
 	"github.com/Azure/ARO-HCP/internal/audit"
 	"github.com/Azure/ARO-HCP/internal/azsdk"
@@ -68,6 +72,7 @@ func DefaultOptions() *RawOptions {
 		MinSessionTTL:           getEnvDuration("MIN_SESSION_TTL", 10*time.Minute),
 		MaxSessionTTL:           getEnvDuration("MAX_SESSION_TTL", 24*time.Hour),
 		AllowedBreakglassGroups: []string{"aro-sre-pso", "aro-sre-csa"},
+		VeleroShardCount:        1,
 	}
 }
 
@@ -90,6 +95,7 @@ type RawOptions struct {
 	MinSessionTTL           time.Duration
 	MaxSessionTTL           time.Duration
 	AllowedBreakglassGroups []string
+	VeleroShardCount        int
 }
 
 func (opts *RawOptions) BindOptions(cmd *cobra.Command) error {
@@ -109,6 +115,7 @@ func (opts *RawOptions) BindOptions(cmd *cobra.Command) error {
 	cmd.Flags().DurationVar(&opts.MinSessionTTL, "min-session-ttl", opts.MinSessionTTL, "Minimum breakglass session TTL.")
 	cmd.Flags().DurationVar(&opts.MaxSessionTTL, "max-session-ttl", opts.MaxSessionTTL, "Maximum breakglass session TTL.")
 	cmd.Flags().StringSliceVar(&opts.AllowedBreakglassGroups, "allowed-breakglass-groups", opts.AllowedBreakglassGroups, "Allowed breakglass groups.")
+	cmd.Flags().IntVar(&opts.VeleroShardCount, "velero-shard-count", opts.VeleroShardCount, "Number of Velero shards per management cluster.")
 	return nil
 }
 
@@ -149,6 +156,8 @@ type completedOptions struct {
 	MaxSessionTTL           time.Duration
 	AllowedBreakglassGroups set.Set[string]
 	Registry                *prometheus.Registry
+	AzureCredential         azcore.TokenCredential
+	VeleroShardCount        int
 }
 
 type Options struct {
@@ -288,6 +297,11 @@ func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
 
 	sessionClient := sessiongateClientset.SessiongateV1alpha1().Sessions(o.SessiongateNamespace)
 
+	azCredential, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Azure credential: %w", err)
+	}
+
 	return &Options{
 		completedOptions: &completedOptions{
 			Port:                    o.Port,
@@ -306,6 +320,8 @@ func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
 			MaxSessionTTL:           o.MaxSessionTTL,
 			AllowedBreakglassGroups: set.New[string](o.AllowedBreakglassGroups...),
 			Registry:                registry,
+			AzureCredential:         azCredential,
+			VeleroShardCount:        o.VeleroShardCount,
 		},
 	}, nil
 }
@@ -362,6 +378,10 @@ func (opts *Options) Run(ctx context.Context) error {
 		opts.MaxSessionTTL,
 		opts.AllowedBreakglassGroups,
 		opts.Registry,
+		opts.AzureCredential,
+		hcp.DefaultMgmtClientFactory,
+		utilsclock.RealClock{},
+		opts.VeleroShardCount,
 	)
 
 	runErrCh := make(chan error, 1)

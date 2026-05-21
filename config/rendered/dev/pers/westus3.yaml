@@ -595,7 +595,7 @@ mgmt:
       vmSize: Standard_D4s_v3
       zoneRedundantMode: Auto
       zones: ""
-    kubernetesVersion: 1.35.1
+    kubernetesVersion: 1.35.4
     name: pers-usw3test-mgmt-1
     networkDataplane: azure
     networkPolicy: azure

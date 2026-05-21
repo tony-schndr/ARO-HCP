@@ -101,16 +101,16 @@ backend:
   backupSchedules:
     daily:
       paused: false
-      schedule: '*/10 * * * *'
-      ttl: 2h
+      schedule: 0 2 * * *
+      ttl: 336h
     hourly:
       paused: false
       schedule: '*/5 * * * *'
       ttl: 1h
     weekly:
       paused: false
-      schedule: '*/15 * * * *'
-      ttl: 3h
+      schedule: 0 3 * * 0
+      ttl: 2160h
   clusterScopedIdentitiesConfig:
     roleSetName: dev
   exitOnPanic: true
@@ -595,7 +595,7 @@ mgmt:
       vmSize: Standard_D4ds_v6
       zoneRedundantMode: Auto
       zones: ""
-    kubernetesVersion: 1.35.1
+    kubernetesVersion: 1.35.4
     name: prow-j7654321-mgmt-1
     networkDataplane: azure
     networkPolicy: azure

@@ -30,13 +30,17 @@ import (
 
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	utilsclock "k8s.io/utils/clock"
 	"k8s.io/utils/set"
 
 	"github.com/Azure/azure-kusto-go/kusto"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 
 	sdk "github.com/openshift-online/ocm-sdk-go"
 
+	"github.com/Azure/ARO-HCP/admin/server/handlers/hcp"
 	"github.com/Azure/ARO-HCP/admin/server/server"
 	"github.com/Azure/ARO-HCP/internal/audit"
 	"github.com/Azure/ARO-HCP/internal/azsdk"
@@ -139,6 +143,7 @@ type completedOptions struct {
 	ResourcesDBClient       database.ResourcesDBClient
 	BillingDBClient         database.BillingDBClient
 	ClusterServiceClient    ocm.ClusterServiceClientSpec
+	FleetDBClient           database.FleetDBClient
 	KustoClient             *kusto.Client
 	FpaCredentialRetriever  fpa.FirstPartyApplicationTokenCredentialRetriever
 	AuditClient             audit.Client
@@ -148,6 +153,7 @@ type completedOptions struct {
 	MaxSessionTTL           time.Duration
 	AllowedBreakglassGroups set.Set[string]
 	Registry                *prometheus.Registry
+	AzureCredential         azcore.TokenCredential
 }
 
 type Options struct {
@@ -222,6 +228,11 @@ func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
 		return nil, fmt.Errorf("failed to create the billing database client: %w", err)
 	}
 
+	fleetDBClient, err := database.NewFleetDBClient(cosmosDatabaseClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create the fleet database client: %w", err)
+	}
+
 	// Create Kusto client
 	var kustoClient *kusto.Client
 	if o.KustoEndpoint != "" {
@@ -283,6 +294,11 @@ func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
 
 	sessionClient := sessiongateClientset.SessiongateV1alpha1().Sessions(o.SessiongateNamespace)
 
+	azCredential, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Azure credential: %w", err)
+	}
+
 	return &Options{
 		completedOptions: &completedOptions{
 			Port:                    o.Port,
@@ -291,6 +307,7 @@ func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
 			ResourcesDBClient:       resourcesDBClient,
 			BillingDBClient:         billingDBClient,
 			ClusterServiceClient:    csClient,
+			FleetDBClient:           fleetDBClient,
 			KustoClient:             kustoClient,
 			FpaCredentialRetriever:  fpaCredentialRetriever,
 			AuditClient:             auditClient,
@@ -300,6 +317,7 @@ func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
 			MaxSessionTTL:           o.MaxSessionTTL,
 			AllowedBreakglassGroups: set.New[string](o.AllowedBreakglassGroups...),
 			Registry:                registry,
+			AzureCredential:         azCredential,
 		},
 	}, nil
 }
@@ -346,6 +364,7 @@ func (opts *Options) Run(ctx context.Context) error {
 		opts.ResourcesDBClient,
 		opts.BillingDBClient,
 		opts.ClusterServiceClient,
+		opts.FleetDBClient,
 		opts.KustoClient,
 		opts.FpaCredentialRetriever,
 		opts.AuditClient,
@@ -355,6 +374,9 @@ func (opts *Options) Run(ctx context.Context) error {
 		opts.MaxSessionTTL,
 		opts.AllowedBreakglassGroups,
 		opts.Registry,
+		opts.AzureCredential,
+		hcp.DefaultMgmtClientFactory,
+		utilsclock.RealClock{},
 	)
 
 	runErrCh := make(chan error, 1)

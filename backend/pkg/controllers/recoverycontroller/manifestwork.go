@@ -16,6 +16,7 @@ package recoverycontroller
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	workv1 "open-cluster-management.io/api/work/v1"
 
@@ -34,6 +35,14 @@ const (
 	hcpRecoveryKind       = "HCPRecovery"
 	hcpRecoveryGroup      = "hcprecovery.aro-hcp.azure.com"
 	hcpRecoveryResource   = "hcprecoveries"
+
+	innerManifestWorkAPIVersion = "work.open-cluster-management.io/v1"
+	innerManifestWorkKind       = "ManifestWork"
+
+	labelContainsNamespaces = "containsNamespaces"
+	labelHostedCluster      = "api.openshift.com/hosted-cluster"
+	labelNodePool           = "api.openshift.com/nodepool"
+	labelNodePoolOcm        = "api.openshift.com/nodepool-ocm"
 )
 
 type manifestWorkPatch struct {
@@ -123,43 +132,132 @@ func buildRecoveryManifestWork(
 	}, nil
 }
 
-func buildReadOnlyPatch(mw *workv1.ManifestWork) ([]byte, error) {
-	return buildUpdateStrategyPatch(mw, workv1.UpdateStrategyTypeReadOnly)
-}
+func buildReadOnlyPatch(outerMW *workv1.ManifestWork) ([]byte, error) {
+	innerMW, err := extractInnerManifestWork(outerMW)
+	if err != nil {
+		return nil, err
+	}
 
-func buildServerSideApplyPatch(mw *workv1.ManifestWork) ([]byte, error) {
-	return buildUpdateStrategyPatch(mw, workv1.UpdateStrategyTypeServerSideApply)
-}
-
-func buildUpdateStrategyPatch(mw *workv1.ManifestWork, strategyType workv1.UpdateStrategyType) ([]byte, error) {
-	configs := make([]workv1.ManifestConfigOption, len(mw.Spec.ManifestConfigs))
-	for i, config := range mw.Spec.ManifestConfigs {
-		configs[i] = workv1.ManifestConfigOption{
-			ResourceIdentifier: config.ResourceIdentifier,
-			UpdateStrategy: &workv1.UpdateStrategy{
-				Type: strategyType,
-			},
-			FeedbackRules: config.FeedbackRules,
+	for i := range innerMW.Spec.ManifestConfigs {
+		innerMW.Spec.ManifestConfigs[i].UpdateStrategy = &workv1.UpdateStrategy{
+			Type: workv1.UpdateStrategyTypeReadOnly,
 		}
+	}
+
+	return buildInnerManifestWorkPatch(innerMW)
+}
+
+func buildRestorePatch(outerMW *workv1.ManifestWork) ([]byte, error) {
+	innerMW, err := extractInnerManifestWork(outerMW)
+	if err != nil {
+		return nil, err
+	}
+
+	strategy := normalStrategyForManifestWork(innerMW)
+	for i := range innerMW.Spec.ManifestConfigs {
+		innerMW.Spec.ManifestConfigs[i].UpdateStrategy = &workv1.UpdateStrategy{
+			Type: strategy,
+		}
+	}
+
+	return buildInnerManifestWorkPatch(innerMW)
+}
+
+func buildInnerManifestWorkPatch(innerMW *workv1.ManifestWork) ([]byte, error) {
+	modifiedBytes, err := json.Marshal(innerMW)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize modified inner ManifestWork: %w", err)
 	}
 
 	return json.Marshal(map[string]any{
 		"spec": map[string]any{
-			"manifestConfigs": configs,
+			"workload": map[string]any{
+				"manifests": []json.RawMessage{json.RawMessage(modifiedBytes)},
+			},
 		},
 	})
 }
 
-func isAllReadOnly(mw *workv1.ManifestWork) bool {
-	if len(mw.Spec.ManifestConfigs) == 0 {
-		return false
+func isClusterManifestWork(mw *workv1.ManifestWork, clusterID string) bool {
+	if strings.HasPrefix(mw.Name, clusterID) {
+		return true
 	}
 	for _, config := range mw.Spec.ManifestConfigs {
+		if strings.Contains(config.ResourceIdentifier.Namespace, clusterID) ||
+			strings.Contains(config.ResourceIdentifier.Name, clusterID) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAllReadOnly(outerMW *workv1.ManifestWork) bool {
+	innerMW, err := extractInnerManifestWork(outerMW)
+	if err != nil {
+		return false
+	}
+	if len(innerMW.Spec.ManifestConfigs) == 0 {
+		return false
+	}
+	for _, config := range innerMW.Spec.ManifestConfigs {
 		if config.UpdateStrategy == nil || config.UpdateStrategy.Type != workv1.UpdateStrategyTypeReadOnly {
 			return false
 		}
 	}
 	return true
+}
+
+func extractInnerManifestWork(outerMW *workv1.ManifestWork) (*workv1.ManifestWork, error) {
+	if len(outerMW.Spec.Workload.Manifests) == 0 {
+		return nil, fmt.Errorf("no manifests in ManifestWork %s", outerMW.Name)
+	}
+
+	raw := outerMW.Spec.Workload.Manifests[0].Raw
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("empty manifest payload in ManifestWork %s", outerMW.Name)
+	}
+
+	innerMW := &workv1.ManifestWork{}
+	if err := json.Unmarshal(raw, innerMW); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal inner ManifestWork from %s: %w", outerMW.Name, err)
+	}
+	return innerMW, nil
+}
+
+func containsInnerManifestWork(outerMW *workv1.ManifestWork) bool {
+	if len(outerMW.Spec.Workload.Manifests) == 0 {
+		return false
+	}
+
+	raw := outerMW.Spec.Workload.Manifests[0].Raw
+	if len(raw) == 0 {
+		return false
+	}
+
+	var meta struct {
+		APIVersion string `json:"apiVersion"`
+		Kind       string `json:"kind"`
+	}
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return false
+	}
+	return meta.APIVersion == innerManifestWorkAPIVersion && meta.Kind == innerManifestWorkKind
+}
+
+func normalStrategyForManifestWork(innerMW *workv1.ManifestWork) workv1.UpdateStrategyType {
+	if _, ok := innerMW.Labels[labelContainsNamespaces]; ok {
+		return workv1.UpdateStrategyTypeCreateOnly
+	}
+	if _, ok := innerMW.Labels[labelHostedCluster]; ok {
+		return workv1.UpdateStrategyTypeServerSideApply
+	}
+	if _, ok := innerMW.Labels[labelNodePool]; ok {
+		return workv1.UpdateStrategyTypeServerSideApply
+	}
+	if _, ok := innerMW.Labels[labelNodePoolOcm]; ok {
+		return workv1.UpdateStrategyTypeServerSideApply
+	}
+	return workv1.UpdateStrategyTypeReadOnly
 }
 
 // extractRecoveryFeedback extracts the HCPRecovery status from ManifestWork feedback.

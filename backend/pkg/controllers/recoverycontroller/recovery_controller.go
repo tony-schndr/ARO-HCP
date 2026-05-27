@@ -17,7 +17,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	workv1 "open-cluster-management.io/api/work/v1"
@@ -169,15 +168,22 @@ func (c *recoverySyncer) SyncOnce(ctx context.Context, key controllerutils.HCPCl
 		return utils.TrackError(fmt.Errorf("invalid recovery action: %w", err))
 	}
 
+	logger := utils.LoggerFromContext(ctx)
+
 	switch {
 	case len(action.patchManifestWorks) > 0:
 		var patchErrors []error
+		var patchedNames []string
 		for _, patch := range action.patchManifestWorks {
 			_, patchErr := maestroClient.Patch(ctx, patch.Name, types.MergePatchType, patch.Data, metav1.PatchOptions{})
 			if patchErr != nil {
 				patchErrors = append(patchErrors, fmt.Errorf("failed to patch ManifestWork %s: %w", patch.Name, patchErr))
+			} else {
+				patchedNames = append(patchedNames, patch.Name)
 			}
 		}
+		logger.Info(fmt.Sprintf("patchManifestWorks: attempted=%d, succeeded=%d, failed=%d, patched=%v",
+			len(action.patchManifestWorks), len(patchedNames), len(patchErrors), patchedNames))
 		if len(patchErrors) > 0 {
 			return utils.TrackError(errors.Join(patchErrors...))
 		}
@@ -232,9 +238,14 @@ func (c *recoverySyncer) ensureRecoveryStarted(_ context.Context, state *recover
 
 // discoverClusterManifestWorks lists all ManifestWorks for the cluster from Maestro.
 func (c *recoverySyncer) discoverClusterManifestWorks(ctx context.Context, state *recoverySyncState) (bool, *recoveryAction, error) {
+	logger := utils.LoggerFromContext(ctx)
+	var totalBundles int
+	var allBundleNames []string
 	var clusterMWs []*workv1.ManifestWork
 	err := maestro.ForEachMaestroBundle(ctx, state.maestroClient, metav1.ListOptions{Limit: 100}, func(mw *workv1.ManifestWork) error {
-		if strings.HasPrefix(mw.Name, state.clusterID) {
+		totalBundles++
+		allBundleNames = append(allBundleNames, mw.Name)
+		if isClusterManifestWork(mw, state.clusterID) && containsInnerManifestWork(mw) {
 			clusterMWs = append(clusterMWs, mw)
 		}
 		return nil
@@ -243,19 +254,29 @@ func (c *recoverySyncer) discoverClusterManifestWorks(ctx context.Context, state
 		return true, nil, utils.TrackError(fmt.Errorf("failed to list ManifestWorks: %w", err))
 	}
 
+	var matchedNames []string
+	for _, mw := range clusterMWs {
+		matchedNames = append(matchedNames, mw.Name)
+	}
+	logger.Info(fmt.Sprintf("discoverClusterManifestWorks: totalBundles=%d, matchingClusterID=%d, clusterID=%s, matched=%v, allBundles=%v",
+		totalBundles, len(clusterMWs), state.clusterID, matchedNames, allBundleNames))
+
 	state.clusterManifestWorks = clusterMWs
 	return false, nil, nil
 }
 
 // ensureManifestWorksReadOnly patches all non-ReadOnly ManifestWorks to ReadOnly.
-func (c *recoverySyncer) ensureManifestWorksReadOnly(_ context.Context, state *recoverySyncState) (bool, *recoveryAction, error) {
+func (c *recoverySyncer) ensureManifestWorksReadOnly(ctx context.Context, state *recoverySyncState) (bool, *recoveryAction, error) {
 	if state.spc.Status.RecoveryState != api.RecoveryStateReadOnlyPending {
 		return false, nil, nil
 	}
 
+	logger := utils.LoggerFromContext(ctx)
+	var alreadyReadOnly int
 	var patches []manifestWorkPatch
 	for _, mw := range state.clusterManifestWorks {
 		if isAllReadOnly(mw) {
+			alreadyReadOnly++
 			continue
 		}
 		data, err := buildReadOnlyPatch(mw)
@@ -264,6 +285,13 @@ func (c *recoverySyncer) ensureManifestWorksReadOnly(_ context.Context, state *r
 		}
 		patches = append(patches, manifestWorkPatch{Name: mw.Name, Data: data})
 	}
+
+	var patchNames []string
+	for _, p := range patches {
+		patchNames = append(patchNames, p.Name)
+	}
+	logger.Info(fmt.Sprintf("ensureManifestWorksReadOnly: total=%d, alreadyReadOnly=%d, patching=%d, patchTargets=%v",
+		len(state.clusterManifestWorks), alreadyReadOnly, len(patches), patchNames))
 
 	if len(patches) == 0 {
 		return false, nil, nil
@@ -278,10 +306,12 @@ func (c *recoverySyncer) confirmAllReadOnly(ctx context.Context, state *recovery
 		return false, nil, nil
 	}
 
+	logger := utils.LoggerFromContext(ctx)
+
 	// Re-read MWs from Maestro to confirm the patches took effect
 	var clusterMWs []*workv1.ManifestWork
 	err := maestro.ForEachMaestroBundle(ctx, state.maestroClient, metav1.ListOptions{Limit: 100}, func(mw *workv1.ManifestWork) error {
-		if strings.HasPrefix(mw.Name, state.clusterID) {
+		if isClusterManifestWork(mw, state.clusterID) && containsInnerManifestWork(mw) {
 			clusterMWs = append(clusterMWs, mw)
 		}
 		return nil
@@ -290,10 +320,31 @@ func (c *recoverySyncer) confirmAllReadOnly(ctx context.Context, state *recovery
 		return true, nil, utils.TrackError(fmt.Errorf("failed to list ManifestWorks for confirmation: %w", err))
 	}
 
+	var notReadOnly []string
 	for _, mw := range clusterMWs {
 		if !isAllReadOnly(mw) {
-			return true, nil, nil
+			innerMW, err := extractInnerManifestWork(mw)
+			if err != nil {
+				notReadOnly = append(notReadOnly, fmt.Sprintf("%s(extractErr=%v)", mw.Name, err))
+				continue
+			}
+			var strategies []string
+			for _, cfg := range innerMW.Spec.ManifestConfigs {
+				stratType := "nil"
+				if cfg.UpdateStrategy != nil {
+					stratType = string(cfg.UpdateStrategy.Type)
+				}
+				strategies = append(strategies, stratType)
+			}
+			notReadOnly = append(notReadOnly, fmt.Sprintf("%s(innerConfigs=%d,innerStrategies=%v)", mw.Name, len(innerMW.Spec.ManifestConfigs), strategies))
 		}
+	}
+
+	logger.Info(fmt.Sprintf("confirmAllReadOnly: found=%d, notReadOnly=%d, details=%v",
+		len(clusterMWs), len(notReadOnly), notReadOnly))
+
+	if len(notReadOnly) > 0 {
+		return true, nil, nil
 	}
 
 	state.spc.Status.RecoveryState = api.RecoveryStateRecoveryCRCreated
@@ -397,11 +448,7 @@ func (c *recoverySyncer) ensureManifestWorksRestored(ctx context.Context, state 
 	// Re-discover MWs since earlier state may be stale
 	var clusterMWs []*workv1.ManifestWork
 	err := maestro.ForEachMaestroBundle(ctx, state.maestroClient, metav1.ListOptions{Limit: 100}, func(mw *workv1.ManifestWork) error {
-		if strings.HasPrefix(mw.Name, state.clusterID) {
-			// Skip the recovery ManifestWork itself — it should stay ServerSideApply
-			if mw.Labels[recoveryManagedByK8sLabelKey] == recoveryManagedByK8sLabelValue {
-				return nil
-			}
+		if isClusterManifestWork(mw, state.clusterID) && containsInnerManifestWork(mw) {
 			clusterMWs = append(clusterMWs, mw)
 		}
 		return nil
@@ -415,7 +462,7 @@ func (c *recoverySyncer) ensureManifestWorksRestored(ctx context.Context, state 
 		if !isAllReadOnly(mw) {
 			continue
 		}
-		data, err := buildServerSideApplyPatch(mw)
+		data, err := buildRestorePatch(mw)
 		if err != nil {
 			return true, nil, utils.TrackError(fmt.Errorf("failed to build ServerSideApply patch for %s: %w", mw.Name, err))
 		}

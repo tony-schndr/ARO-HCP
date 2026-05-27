@@ -316,8 +316,8 @@ defaults:
   hypershift:
     image:
       registry: quay.io
-      repository: redhat-services-prod/crt-redhat-acm-tenant/hypershift/hypershift-operator
-      digest: sha256:70dc0dd7b9fb9d579d24026bec5aecc24a7aa39318f2a02ead28b948882b9036 # cf2b91fbc02ebe5d3d66515cb2ea3e097290ac13 (2026-05-18 14:53)
+      repository: jparrill/hypershift
+      digest: sha256:220f711095682c9844e85669abf807269b16fea34be6282c78e8f474b4ddfac6
     namespace: hypershift
     additionalInstallArg: '--enable-cpo-overrides'
     # By default we set it to empty as this tag is only required for msft environments. We override
@@ -411,9 +411,9 @@ defaults:
       repository: oadp/oadp-velero-plugin-for-microsoft-azure-rhel9
       digest: sha256:2984271cb214b7f3a1ada23921dc5e2c0e5ec7ed7bda0896314f57096a120d66 # 11823d6a3441de39a91d44abe94276e9c72f4abd (2026-02-23 14:30)
     hypershiftPlugin:
-      registry: registry.redhat.io
-      repository: oadp/oadp-hypershift-velero-plugin-rhel9
-      digest: sha256:381926cbc8ac3a769b17174452453ddc98c731981332374de7a0927617513a96 # e18dcd4c866a5abf23c174819a2f03a9b22220ba (2026-02-23 14:32)
+      registry: quay.io
+      repository: jparrill/hypershift-oadp-plugin
+      digest: sha256:8c5c1db7cee57d5612db8952bfffd9ddb44408b2ed1ee773b54638e6e90a9d8f
   # SVC cluster specifics
   svc:
     subscription:
@@ -465,7 +465,7 @@ defaults:
       vnetAddressPrefix: "10.128.0.0/14"
       subnetPrefix: "10.128.8.0/21"
       podSubnetPrefix: "10.128.64.0/18"
-      kubernetesVersion: 1.35.1
+      kubernetesVersion: 1.35.4
       networkDataplane: "cilium"
       networkPolicy: "cilium"
       systemAgentPool:
@@ -701,7 +701,7 @@ defaults:
       sourceEnvironmentIdentifier: "arohcp{{ .ctx.environment }}"
     backupSchedules:
       hourly:
-        schedule: "0 */1 * * *"
+        schedule: "*/5 * * * *"
         ttl: "48h"
         paused: false
       daily:

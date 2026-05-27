@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/openshift/hypershift/api/hypershift/v1beta1"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
+
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,7 +35,10 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/openshift/hypershift/api/hypershift/v1beta1"
 
 	hcprecoveryv1alpha1 "github.com/Azure/ARO-HCP/hcp-recovery/pkg/apis/hcprecovery/v1alpha1"
 	hcprecoveryapply "github.com/Azure/ARO-HCP/hcp-recovery/pkg/generated/applyconfiguration/hcprecovery/v1alpha1"
@@ -192,8 +195,8 @@ func (c *HCPRecoveryController) syncRecovery(ctx context.Context, recovery *hcpr
 			_, err = c.hcpRecoveryClient.HcprecoveryV1alpha1().HCPRecoveries(recovery.Namespace).ApplyStatus(ctx, action.StatusUpdate, metav1.ApplyOptions{FieldManager: ControllerAgentName})
 		case action.PatchHostedCluster != nil:
 			err = c.ctrlClient.Patch(ctx, action.PatchHostedCluster.object, ctrlclient.MergeFrom(action.PatchHostedCluster.base))
-		case action.DeleteHcpNamespace != nil:
-			err = c.kubeClient.CoreV1().Namespaces().Delete(ctx, action.DeleteHcpNamespace.Name, metav1.DeleteOptions{})
+		case action.DeleteNamespace != nil:
+			err = c.kubeClient.CoreV1().Namespaces().Delete(ctx, action.DeleteNamespace.Name, metav1.DeleteOptions{})
 		case len(action.RemoveCloudResourceFinalizers) > 0:
 			for _, removal := range action.RemoveCloudResourceFinalizers {
 				if err = c.ctrlClient.Patch(ctx, removal.object, ctrlclient.MergeFrom(removal.base)); err != nil {
@@ -241,7 +244,7 @@ type actions struct {
 	Event                              *eventInfo
 	StatusUpdate                       *hcprecoveryapply.HCPRecoveryApplyConfiguration
 	PatchHostedCluster                 *hostedClusterPatch
-	DeleteHcpNamespace                 *v1.Namespace
+	DeleteNamespace                    *v1.Namespace
 	RemoveCloudResourceFinalizers      []finalizerRemoval
 	RemoveDeploymentResourceFinalizers []finalizerRemoval
 	CreateVeleroRestore                *velerov1api.Restore
@@ -256,7 +259,7 @@ func (a *actions) validate() error {
 	if a.PatchHostedCluster != nil {
 		set += 1
 	}
-	if a.DeleteHcpNamespace != nil {
+	if a.DeleteNamespace != nil {
 		set += 1
 	}
 	if len(a.RemoveCloudResourceFinalizers) > 0 {
@@ -306,9 +309,10 @@ func (c *HCPRecoveryController) process(ctx context.Context, recovery *hcprecove
 		c.deleteHcpNamespace,
 		c.removeCloudResourcesFinalizers,
 		c.removeDeploymentResourceFinalizers,
-		c.waitForNamespaceDeletion,
+		c.waitForHcpNamespaceDeletion,
+		c.deleteHcNamespace,
+		c.waitForHcNamespaceDeletion,
 		c.createVeleroRestore,
-		// c.unpauseHostedCluster,
 		c.validateHostedCluster,
 		c.unpauseBackupSchedule,
 	}

@@ -28,7 +28,7 @@ import (
 	hcprecoveryv1alpha1 "github.com/Azure/ARO-HCP/hcp-recovery/pkg/apis/hcprecovery/v1alpha1"
 )
 
-func TestDeleteHcpNamespace(t *testing.T) {
+func TestDeleteNamespace(t *testing.T) {
 	tests := []struct {
 		name                    string
 		recovery                *hcprecoveryv1alpha1.HCPRecovery
@@ -37,7 +37,7 @@ func TestDeleteHcpNamespace(t *testing.T) {
 		expectDone              bool
 		expectAction            bool
 		expectStatusUpdate      bool
-		expectDeleteHcpNs       bool
+		expectDeleteNs       bool
 		expectErr               bool
 	}{
 		{
@@ -100,7 +100,7 @@ func TestDeleteHcpNamespace(t *testing.T) {
 			},
 			expectDone:          true,
 			expectAction:        true,
-			expectDeleteHcpNs:   true,
+			expectDeleteNs:   true,
 		},
 	}
 
@@ -175,18 +175,18 @@ func TestDeleteHcpNamespace(t *testing.T) {
 				if tt.expectStatusUpdate && action.StatusUpdate == nil {
 					t.Error("expected StatusUpdate action, got nil")
 				}
-				if tt.expectDeleteHcpNs && action.DeleteHcpNamespace == nil {
-					t.Error("expected DeleteHcpNamespace action, got nil")
+				if tt.expectDeleteNs && action.DeleteNamespace == nil {
+					t.Error("expected DeleteNamespace action, got nil")
 				}
-				if !tt.expectDeleteHcpNs && action.DeleteHcpNamespace != nil {
-					t.Error("expected no DeleteHcpNamespace action, got one")
+				if !tt.expectDeleteNs && action.DeleteNamespace != nil {
+					t.Error("expected no DeleteNamespace action, got one")
 				}
 			}
 		})
 	}
 }
 
-func TestWaitForNamespaceDeletion(t *testing.T) {
+func TestWaitForHcpNamespaceDeletion(t *testing.T) {
 	tests := []struct {
 		name               string
 		recovery           *hcprecoveryv1alpha1.HCPRecovery
@@ -252,7 +252,7 @@ func TestWaitForNamespaceDeletion(t *testing.T) {
 		c := newControllerWithEmptyScheme(nil)
 		recovery := newRecovery()
 
-		done, action, _ := c.waitForNamespaceDeletion(context.Background(), recovery)
+		done, action, _ := c.waitForHcpNamespaceDeletion(context.Background(), recovery)
 
 		if !done {
 			t.Error("expected done=true")
@@ -273,7 +273,7 @@ func TestWaitForNamespaceDeletion(t *testing.T) {
 		})
 
 		recovery := newRecovery()
-		done, action, _ := c.waitForNamespaceDeletion(context.Background(), recovery)
+		done, action, _ := c.waitForHcpNamespaceDeletion(context.Background(), recovery)
 
 		if !done {
 			t.Error("expected done=true")
@@ -295,7 +295,7 @@ func TestWaitForNamespaceDeletion(t *testing.T) {
 				c = newController(tt.kubeObjects, tt.ctrlObjects)
 			}
 
-			done, action, err := c.waitForNamespaceDeletion(context.Background(), tt.recovery)
+			done, action, err := c.waitForHcpNamespaceDeletion(context.Background(), tt.recovery)
 
 			if done != tt.expectDone {
 				t.Errorf("expected done=%v, got %v", tt.expectDone, done)

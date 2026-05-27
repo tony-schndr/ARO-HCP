@@ -412,6 +412,66 @@ func NamespaceNotFullyRemovedCondition(reason, message string, generation int64,
 		WithLastTransitionTime(metav1.NewTime(now))
 }
 
+func HCNamespaceDeletedCondition(generation int64, now time.Time) *applyv1.ConditionApplyConfiguration {
+	return applyv1.Condition().
+		WithType(hcprecoveryv1alpha1.ConditionHCNamespaceDeleted).
+		WithStatus(metav1.ConditionTrue).
+		WithReason("NamespaceDeletionInitiated").
+		WithMessage("HC namespace deletion has been initiated").
+		WithObservedGeneration(generation).
+		WithLastTransitionTime(metav1.NewTime(now))
+}
+
+func HCNamespaceNotDeletedCondition(reason, message string, generation int64, now time.Time) *applyv1.ConditionApplyConfiguration {
+	return applyv1.Condition().
+		WithType(hcprecoveryv1alpha1.ConditionHCNamespaceDeleted).
+		WithStatus(metav1.ConditionFalse).
+		WithReason(reason).
+		WithMessage(message).
+		WithObservedGeneration(generation).
+		WithLastTransitionTime(metav1.NewTime(now))
+}
+
+func HCResourceFinalizersRemovedCondition(generation int64, now time.Time) *applyv1.ConditionApplyConfiguration {
+	return applyv1.Condition().
+		WithType(hcprecoveryv1alpha1.ConditionHCResourceFinalizersRemoved).
+		WithStatus(metav1.ConditionTrue).
+		WithReason("HCResourceFinalizersRemoved").
+		WithMessage("Finalizers have been removed from HostedCluster and NodePool resources").
+		WithObservedGeneration(generation).
+		WithLastTransitionTime(metav1.NewTime(now))
+}
+
+func HCResourceFinalizersNotRemovedCondition(reason, message string, generation int64, now time.Time) *applyv1.ConditionApplyConfiguration {
+	return applyv1.Condition().
+		WithType(hcprecoveryv1alpha1.ConditionHCResourceFinalizersRemoved).
+		WithStatus(metav1.ConditionFalse).
+		WithReason(reason).
+		WithMessage(message).
+		WithObservedGeneration(generation).
+		WithLastTransitionTime(metav1.NewTime(now))
+}
+
+func HCNamespaceFullyRemovedCondition(generation int64, now time.Time) *applyv1.ConditionApplyConfiguration {
+	return applyv1.Condition().
+		WithType(hcprecoveryv1alpha1.ConditionHCNamespaceFullyRemoved).
+		WithStatus(metav1.ConditionTrue).
+		WithReason("NamespaceRemoved").
+		WithMessage("HC namespace and all resources have been fully removed").
+		WithObservedGeneration(generation).
+		WithLastTransitionTime(metav1.NewTime(now))
+}
+
+func HCNamespaceNotFullyRemovedCondition(reason, message string, generation int64, now time.Time) *applyv1.ConditionApplyConfiguration {
+	return applyv1.Condition().
+		WithType(hcprecoveryv1alpha1.ConditionHCNamespaceFullyRemoved).
+		WithStatus(metav1.ConditionFalse).
+		WithReason(reason).
+		WithMessage(message).
+		WithObservedGeneration(generation).
+		WithLastTransitionTime(metav1.NewTime(now))
+}
+
 func VeleroRestoreCompletedCondition(generation int64, now time.Time) *applyv1.ConditionApplyConfiguration {
 	return applyv1.Condition().
 		WithType(hcprecoveryv1alpha1.ConditionVeleroRestoreCompleted).

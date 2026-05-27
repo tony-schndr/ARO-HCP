@@ -52,9 +52,18 @@ const (
 	// ConditionDeploymentFinalizersRemoved indicates whether finalizers have been
 	// removed from deployment resources to allow clean deletion.
 	ConditionDeploymentFinalizersRemoved = "DeploymentFinalizersRemoved"
-	// ConditionNamespaceFullyRemoved indicates whether the namespace and all its
+	// ConditionNamespaceFullyRemoved indicates whether the HCP namespace and all its
 	// resources have been fully removed from the cluster.
 	ConditionNamespaceFullyRemoved = "NamespaceFullyRemoved"
+	// ConditionHCNamespaceDeleted indicates whether the HC namespace deletion
+	// has been initiated to allow a clean restore of the HostedCluster and NodePool resources.
+	ConditionHCNamespaceDeleted = "HCNamespaceDeleted"
+	// ConditionHCResourceFinalizersRemoved indicates whether finalizers have been
+	// removed from HostedCluster and NodePool resources to allow clean namespace deletion.
+	ConditionHCResourceFinalizersRemoved = "HCResourceFinalizersRemoved"
+	// ConditionHCNamespaceFullyRemoved indicates whether the HC namespace and all its
+	// resources have been fully removed from the cluster.
+	ConditionHCNamespaceFullyRemoved = "HCNamespaceFullyRemoved"
 	// ConditionVeleroRestoreCompleted indicates whether the Velero restore operation
 	// has completed successfully, restoring etcd and control plane state.
 	ConditionVeleroRestoreCompleted = "VeleroRestoreCompleted"

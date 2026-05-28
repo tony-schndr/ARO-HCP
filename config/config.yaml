@@ -1496,6 +1496,13 @@ clouds:
                 exporter: "otlp"
           # Backend
           backend:
+            backupSchedules:
+              paused: false
+              # A frequent backup schedule for local E2E testing to guarantee backups are executed during all tests to
+              # help confirm backups do not impact normal cluster operations.
+              hourly:
+                schedule: "*/5 * * * *"
+                ttl: "1h"
             tracing:
               address: "http://ingest.observability:4318"
               exporter: "otlp"

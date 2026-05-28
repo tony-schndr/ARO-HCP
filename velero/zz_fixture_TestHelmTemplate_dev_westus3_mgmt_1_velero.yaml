@@ -32,6 +32,15 @@ stringData:
     AZURE_RESOURCE_GROUP=hcp-underlay-dev-westus3-mgmt-1
     AZURE_CLOUD_NAME=AzurePublicCloud
 ---
+# Source: velero-hcp-cli/templates/hypershift-plugin-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hypershift-oadp-plugin-config
+data:
+  etcdBackupMethod: "etcdSnapshot"
+  hoNamespace: "hypershift"
+---
 # Source: velero-hcp-cli/templates/installer-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -266,7 +275,7 @@ spec:
   acr:
     environment: PublicCloud
     server: 'arohcpsvcdev.azurecr.io'
-    scope: 'repository:oadp/oadp-velero-rhel9:pull repository:oadp/oadp-velero-plugin-for-microsoft-azure-rhel9:pull repository:oadp/oadp-hypershift-velero-plugin-rhel9:pull'
+    scope: 'repository:oadp/oadp-velero-rhel9:pull repository:oadp/oadp-velero-plugin-for-microsoft-azure-rhel9:pull repository:jparrill/hypershift-oadp-plugin:pull'
   auth:
     workloadIdentity:
       serviceAccountRef: velero
@@ -415,7 +424,7 @@ spec:
           ./velero install \
             --namespace velero \
             --provider azure \
-            --plugins arohcpsvcdev.azurecr.io/oadp/oadp-velero-plugin-for-microsoft-azure-rhel9@sha256:1234567890,arohcpsvcdev.azurecr.io/oadp/oadp-hypershift-velero-plugin-rhel9@sha256:1234567890 \
+            --plugins arohcpsvcdev.azurecr.io/oadp/oadp-velero-plugin-for-microsoft-azure-rhel9@sha256:1234567890,arohcpsvcdev.azurecr.io/jparrill/hypershift-oadp-plugin@sha256:1234567890 \
             --bucket backups \
             --prefix velero \
             --secret-file /credentials/cloud \

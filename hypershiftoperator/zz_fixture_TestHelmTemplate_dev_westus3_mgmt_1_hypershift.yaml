@@ -626,6 +626,26 @@ spec:
       status: {}
 
 ---
+# Source: aro-hcp-hypershift-operator/templates/etcd-backup-job.serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    azure.workload.identity/client-id: '__etcdBackupJobMsiClientId__'
+    azure.workload.identity/tenant-id: '__tenantId__'
+  name: etcd-backup-job
+  namespace: 'hypershift'
+---
+# Source: aro-hcp-hypershift-operator/templates/hypershift.serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    azure.workload.identity/client-id: '__hypershiftMsiClientId__'
+    azure.workload.identity/tenant-id: '__tenantId__'
+  name: hypershift
+  namespace: 'hypershift'
+---
 # Source: aro-hcp-hypershift-operator/templates/installer.serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
@@ -711,17 +731,18 @@ spec:
     spec:
       containers:
       - name: install
-        image: "arohcpsvcdev.azurecr.io/redhat-services-prod/crt-redhat-acm-tenant/hypershift/hypershift-operator@sha256:1234567890"
+        image: "arohcpsvcdev.azurecr.io/jparrill/hypershift@sha256:1234567890"
         command:
         - /bin/sh
         - -c
         - |
           hypershift install \
             --enable-conversion-webhook=false \
+            --tech-preview-no-upgrade \
             --managed-service ARO-HCP \
             --aro-hcp-key-vault-users-client-id __csiSecretStoreClientId__ \
             --registry-overrides "quay.io/openshift-release-dev/ocp-v4.0-art-dev=arohcpocpdev.azurecr.io/openshift-release-dev/ocp-v4.0-art-dev,quay.io/openshift-release-dev/ocp-v5.0-art-dev=arohcpocpdev.azurecr.io/openshift-release-dev/ocp-v5.0-art-dev,quay.io/openshift-release-dev/ocp-release=arohcpocpdev.azurecr.io/openshift-release-dev/ocp-release,quay.io/openshift-release-dev/ocp-release-nightly=arohcpocpdev.azurecr.io/openshift-release-dev/ocp-release-nightly,registry.redhat.io/redhat=arohcpocpdev.azurecr.io/redhat" \
-            --hypershift-image arohcpsvcdev.azurecr.io/redhat-services-prod/crt-redhat-acm-tenant/hypershift/hypershift-operator@sha256:1234567890 \
+            --hypershift-image arohcpsvcdev.azurecr.io/jparrill/hypershift@sha256:1234567890 \
             --platform-monitoring=None \
             --metrics-set=SRE \
             --enable-size-tagging=true \

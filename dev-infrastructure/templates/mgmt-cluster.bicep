@@ -281,6 +281,11 @@ var workloadIdentities = items({
     namespace: kubeApplierNamespace
     serviceAccountName: kubeApplierServiceAccountName
   }
+  etcd_backup_job_wi: {
+    uamiName: 'etcd-backup-job'
+    namespace: 'hypershift'
+    serviceAccountName: 'etcd-backup-job'
+  }
 })
 
 module managedIdentities '../modules/managed-identities.bicep' = {
@@ -611,6 +616,7 @@ module hcpBackupsRbac '../modules/hcp-backups/storage-rbac.bicep' = {
   params: {
     storageAccountName: hcpBackupsStorageAccountName
     veleroManagedIdentityPrincipalId: mi.getManagedIdentityByName(managedIdentities.outputs.managedIdentities, 'velero').uamiPrincipalID
+    etcdBackupJobManagedIdentityPrincipalId: mi.getManagedIdentityByName(managedIdentities.outputs.managedIdentities, 'etcd-backup-job').uamiPrincipalID
   }
 }
 

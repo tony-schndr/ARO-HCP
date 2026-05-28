@@ -22,6 +22,7 @@ spec:
         - |
           hypershift install \
             --enable-conversion-webhook=false \
+            --tech-preview-no-upgrade \
             --managed-service ARO-HCP \
             --aro-hcp-key-vault-users-client-id {{ .Values.azureKeyVaultClientId }} \
             --registry-overrides "{{ .Values.registryOverrides }}" \

@@ -1,0 +1,221 @@
+rule_files:
+- velero-prometheusRule.yaml
+evaluation_interval: 1m
+tests:
+# Test: VeleroHourlyBackupStuck fires when no successful backups in 2h
+# Counter stays flat (no increase) for 150 minutes
+- interval: 1m
+  input_series:
+  - series: 'velero_backup_success_total{schedule="test-schedule-hourly", cluster="test-cluster"}'
+    values: '5+0x150'
+  alert_rule_test:
+  - eval_time: 135m
+    alertname: VeleroHourlyBackupStuck
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        schedule: test-schedule-hourly
+        cluster: test-cluster
+      exp_annotations:
+        description: 'Velero hourly schedule test-schedule-hourly has had zero fully successful backups in the last 2 hours. A stuck or failed backup may be blocking the queue. Note: PartiallyFailed backups are not counted as successful.'
+        runbook_url: 'TBD'
+        summary: 'Velero hourly backup stuck: no successful backup for test-schedule-hourly in over 2 hours'
+# Test: VeleroHourlyBackupStuck does NOT fire when backups succeed
+# Counter increments once per hour (1 success per 60 minutes)
+- interval: 1m
+  input_series:
+  - series: 'velero_backup_success_total{schedule="test-schedule-hourly", cluster="test-cluster"}'
+    values: '0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2'
+  alert_rule_test:
+  - eval_time: 135m
+    alertname: VeleroHourlyBackupStuck
+    exp_alerts: []
+# Test: VeleroHourlyBackupStuckCritical fires when no successful backups in 6h
+- interval: 1m
+  input_series:
+  - series: 'velero_backup_success_total{schedule="test-schedule-hourly", cluster="test-cluster"}'
+    values: '5+0x400'
+  alert_rule_test:
+  - eval_time: 380m
+    alertname: VeleroHourlyBackupStuckCritical
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        schedule: test-schedule-hourly
+        cluster: test-cluster
+      exp_annotations:
+        description: 'Velero hourly schedule test-schedule-hourly has had zero fully successful backups in the last 6 hours. Backups are likely piling up with one stuck backup blocking the queue. Note: PartiallyFailed backups are not counted as successful.'
+        runbook_url: 'TBD'
+        summary: 'Velero hourly backup critically stuck: no successful backup for test-schedule-hourly in over 6 hours'
+# Test: VeleroHourlyBackupStuckCritical does NOT fire when backups succeed
+- interval: 1m
+  input_series:
+  - series: 'velero_backup_success_total{schedule="test-schedule-hourly", cluster="test-cluster"}'
+    values: '0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 6 6 6 6 6 6 6 6 6 6 6 6 6 6 6 6 6 6 6 6 6'
+  alert_rule_test:
+  - eval_time: 380m
+    alertname: VeleroHourlyBackupStuckCritical
+    exp_alerts: []
+# Test: VeleroDailyBackupStuck fires when no successful backups in 26h
+- interval: 1m
+  input_series:
+  - series: 'velero_backup_success_total{schedule="test-schedule-daily", cluster="test-cluster"}'
+    values: '5+0x1620'
+  alert_rule_test:
+  - eval_time: 1580m
+    alertname: VeleroDailyBackupStuck
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        schedule: test-schedule-daily
+        cluster: test-cluster
+      exp_annotations:
+        description: 'Velero daily schedule test-schedule-daily has had zero fully successful backups in the last 26 hours. A stuck or failed backup may be blocking the queue. Note: PartiallyFailed backups are not counted as successful.'
+        runbook_url: 'TBD'
+        summary: 'Velero daily backup stuck: no successful backup for test-schedule-daily in over 26 hours'
+# Test: VeleroDailyBackupStuck does NOT fire when backups succeed within 26h
+# Counter increments at minute 600 (within the 26h window)
+- interval: 1m
+  input_series:
+  - series: 'velero_backup_success_total{schedule="test-schedule-daily", cluster="test-cluster"}'
+    values: '0+0x600 1+0x1020'
+  alert_rule_test:
+  - eval_time: 1580m
+    alertname: VeleroDailyBackupStuck
+    exp_alerts: []
+# Test: VeleroDailyBackupStuckCritical fires when no successful backups in 50h
+- interval: 1m
+  input_series:
+  - series: 'velero_backup_success_total{schedule="test-schedule-daily", cluster="test-cluster"}'
+    values: '5+0x3060'
+  alert_rule_test:
+  - eval_time: 3020m
+    alertname: VeleroDailyBackupStuckCritical
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        schedule: test-schedule-daily
+        cluster: test-cluster
+      exp_annotations:
+        description: 'Velero daily schedule test-schedule-daily has had zero fully successful backups in the last 50 hours. Backups are likely piling up with one stuck backup blocking the queue. Note: PartiallyFailed backups are not counted as successful.'
+        runbook_url: 'TBD'
+        summary: 'Velero daily backup critically stuck: no successful backup for test-schedule-daily in over 50 hours'
+# Test: VeleroDailyBackupStuckCritical does NOT fire when backups succeed
+- interval: 1m
+  input_series:
+  - series: 'velero_backup_success_total{schedule="test-schedule-daily", cluster="test-cluster"}'
+    values: '0+0x600 1+0x2460'
+  alert_rule_test:
+  - eval_time: 3020m
+    alertname: VeleroDailyBackupStuckCritical
+    exp_alerts: []
+# Test: Hourly alert does NOT fire for daily schedules
+- interval: 1m
+  input_series:
+  - series: 'velero_backup_success_total{schedule="test-schedule-daily", cluster="test-cluster"}'
+    values: '5+0x150'
+  alert_rule_test:
+  - eval_time: 135m
+    alertname: VeleroHourlyBackupStuck
+    exp_alerts: []
+# Test: VeleroBackupInProgressTooLong fires when a backup is InProgress for >2h
+- interval: 1m
+  input_series:
+  - series: 'veleroBackup_phase{phase="InProgress", schedule="test-schedule-hourly", cluster="test-cluster", name="test-backup-1", namespace="velero"}'
+    values: '1+0x150'
+  alert_rule_test:
+  - eval_time: 135m
+    alertname: VeleroBackupInProgressTooLong
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        schedule: test-schedule-hourly
+        cluster: test-cluster
+      exp_annotations:
+        description: 'Velero schedule test-schedule-hourly has a backup stuck in InProgress phase for over 2 hours. This blocks subsequent backups from being processed.'
+        runbook_url: 'TBD'
+        summary: 'Velero backup stuck InProgress for test-schedule-hourly for over 2 hours'
+# Test: VeleroBackupInProgressTooLong does NOT fire when backup completes quickly
+- interval: 1m
+  input_series:
+  - series: 'veleroBackup_phase{phase="InProgress", schedule="test-schedule-hourly", cluster="test-cluster", name="test-backup-1", namespace="velero"}'
+    values: '1+0x30 0+0x120'
+  alert_rule_test:
+  - eval_time: 135m
+    alertname: VeleroBackupInProgressTooLong
+    exp_alerts: []
+# ========================================
+# Recording Rule Tests
+# ========================================
+# Test: velero:csi_snapshot_attempt:total aggregates away backupName label
+- interval: 1m
+  input_series:
+  - series: 'velero_csi_snapshot_attempt_total{namespace="velero", cluster="test-cluster", schedule="test-schedule-hourly", backupName="backup-1"}'
+    values: '10+0x5'
+  - series: 'velero_csi_snapshot_attempt_total{namespace="velero", cluster="test-cluster", schedule="test-schedule-hourly", backupName="backup-2"}'
+    values: '5+0x5'
+  promql_expr_test:
+  - expr: 'velero:csi_snapshot_attempt:total{schedule="test-schedule-hourly", cluster="test-cluster"}'
+    eval_time: 3m
+    exp_samples:
+    - labels: 'velero:csi_snapshot_attempt:total{cluster="test-cluster", schedule="test-schedule-hourly"}'
+      value: 15
+# ========================================
+# VeleroBackupDeletionFailureRate Tests
+# ========================================
+# Test: VeleroBackupDeletionFailureRate fires when >20% failure rate
+# 3/10 = 30% > 20% threshold
+- interval: 1m
+  input_series:
+  - series: 'velero_backup_deletion_failure_total{namespace="velero", cluster="test-cluster", schedule="test-schedule-hourly"}'
+    values: '0+3x150'
+  - series: 'velero_backup_deletion_attempt_total{namespace="velero", cluster="test-cluster", schedule="test-schedule-hourly"}'
+    values: '0+10x150'
+  alert_rule_test:
+  - eval_time: 130m
+    alertname: VeleroBackupDeletionFailureRate
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        cluster: test-cluster
+      exp_annotations:
+        description: 'Velero backup deletion failure rate is 30% over the last 2 hours (threshold: 20%).'
+        runbook_url: 'TBD'
+        summary: 'Velero backup deletion failure rate above 20%'
+# Test: VeleroBackupDeletionFailureRate does NOT fire when <20%
+# 1/10 = 10% < 20% threshold
+- interval: 1m
+  input_series:
+  - series: 'velero_backup_deletion_failure_total{namespace="velero", cluster="test-cluster", schedule="test-schedule-hourly"}'
+    values: '0+1x150'
+  - series: 'velero_backup_deletion_attempt_total{namespace="velero", cluster="test-cluster", schedule="test-schedule-hourly"}'
+    values: '0+10x150'
+  alert_rule_test:
+  - eval_time: 130m
+    alertname: VeleroBackupDeletionFailureRate
+    exp_alerts: []
+# ========================================
+# VeleroMetricsAbsent Tests
+# ========================================
+# Test: VeleroMetricsAbsent fires when no velero_backup_total exists
+- interval: 1m
+  input_series: []
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: VeleroMetricsAbsent
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+      exp_annotations:
+        description: 'No Velero backup metrics detected for 15+ minutes. The Velero server may be down or metrics scraping is broken.'
+        runbook_url: 'TBD'
+        summary: 'Velero metrics absent for over 15 minutes'
+# Test: VeleroMetricsAbsent does NOT fire when velero_backup_total exists
+- interval: 1m
+  input_series:
+  - series: 'velero_backup_total{namespace="velero"}'
+    values: '5+0x25'
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: VeleroMetricsAbsent
+    exp_alerts: []

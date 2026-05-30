@@ -237,6 +237,9 @@ param genevaManageCertificates bool
 @description('The name of the Azure Storage account to create for HCP Backups')
 param hcpBackupsStorageAccountName string
 
+@description('Number of Velero shards per management cluster')
+param veleroShardCount int = 1
+
 @description('The cluster tag value for the owning team')
 param owningTeamTagValue string
 
@@ -250,7 +253,7 @@ param auditLogsEventHubAuthRuleId string
 //   M A N A G E D   I D E N T I T I E S
 //
 
-var workloadIdentities = items({
+var baseWorkloadIdentities = items({
   maestro_wi: {
     uamiName: maestroConsumerMIName
     namespace: maestroConsumerNamespace
@@ -271,11 +274,6 @@ var workloadIdentities = items({
     namespace: 'prometheus'
     serviceAccountName: 'prometheus'
   }
-  velero_wi: {
-    uamiName: 'velero'
-    namespace: 'velero'
-    serviceAccountName: 'velero'
-  }
   kube_applier_wi: {
     uamiName: kubeApplierMIName
     namespace: kubeApplierNamespace
@@ -283,11 +281,26 @@ var workloadIdentities = items({
   }
 })
 
+var veleroWorkloadIdentities = [
+  for i in range(0, veleroShardCount): {
+    key: 'velero_wi_${i}'
+    value: {
+      uamiName: 'velero-${i}'
+      namespace: 'velero-${i}'
+      serviceAccountName: 'velero'
+    }
+  }
+]
+
+var workloadIdentities = concat(baseWorkloadIdentities, veleroWorkloadIdentities)
+var allManagedIdentityNames = [for wi in workloadIdentities: wi.value.uamiName]
+var uniqueManagedIdentityNames = union(allManagedIdentityNames, [])
+
 module managedIdentities '../modules/managed-identities.bicep' = {
   name: 'managed-identities'
   params: {
     location: location
-    manageIdentityNames: [for wi in workloadIdentities: wi.value.uamiName]
+    manageIdentityNames: uniqueManagedIdentityNames
   }
 }
 
@@ -610,7 +623,11 @@ module hcpBackupsRbac '../modules/hcp-backups/storage-rbac.bicep' = {
   name: 'hcp-backups-rbac'
   params: {
     storageAccountName: hcpBackupsStorageAccountName
-    veleroManagedIdentityPrincipalId: mi.getManagedIdentityByName(managedIdentities.outputs.managedIdentities, 'velero').uamiPrincipalID
+    veleroManagedIdentityPrincipalIds: [
+      for i in range(0, veleroShardCount): mi.getManagedIdentityByName(
+        managedIdentities.outputs.managedIdentities, 'velero-${i}'
+      ).uamiPrincipalID
+    ]
   }
 }
 

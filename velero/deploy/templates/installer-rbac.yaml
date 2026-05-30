@@ -1,11 +1,3 @@
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: velero-installer
-  namespace: '{{ .Release.Namespace }}'
-  annotations:
-    azure.workload.identity/client-id: '{{ .Values.clientId }}'
----
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -56,16 +48,27 @@ rules:
   resources:
   - customresourcedefinitions
   verbs: ["get", "list", "watch", "create", "update", "patch"]
+{{- $clientIds := splitList "," $.Values.clientIds }}
+{{- range $i, $_ := until (int .Values.shardCount) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: velero-installer
+  namespace: velero-{{ $i }}
+  annotations:
+    azure.workload.identity/client-id: '{{ index $clientIds (mod $i (len $clientIds)) }}'
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: velero-installer
+  name: velero-installer-{{ $i }}
 subjects:
 - kind: ServiceAccount
   name: velero-installer
-  namespace: '{{ .Release.Namespace }}'
+  namespace: velero-{{ $i }}
 roleRef:
   kind: ClusterRole
   name: velero-installer
   apiGroup: rbac.authorization.k8s.io
+{{- end }}

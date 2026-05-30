@@ -120,7 +120,7 @@ resourceGroups:
     aksCluster: '{{ .mgmt.aks.name }}'
     action: Helm
     releaseName: 'velero'
-    releaseNamespace: 'velero'
+    releaseNamespace: 'velero-release'
     chartDir: ./deploy
     valuesFile: ./deploy/values.yaml
     kustoEndpoint:
@@ -138,10 +138,10 @@ resourceGroups:
         resourceGroup: management
         step: image-puller-lookup
         name: imagePullerMsiTenantId
-      veleroMsiClientId:
+      veleroMsiClientIds:
         resourceGroup: management
         step: output
-        name: veleroMsiClientId
+        name: veleroMsiClientIds
       tenantId:
         resourceGroup: management
         step: output

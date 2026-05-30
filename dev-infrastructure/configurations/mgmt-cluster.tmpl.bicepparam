@@ -102,6 +102,7 @@ param owningTeamTagValue = '{{ .monitoring.alertRuleOwningTeamTag }}'
 
 // HCP Backups Storage Account
 param hcpBackupsStorageAccountName = '{{ .mgmt.hcpBackups.storageAccount.name }}'
+param veleroShardCount = {{ .mgmt.hcpBackups.veleroShardCount }}
 
 // Audit Logs Event Hub
 param auditLogsEventHubName = '{{ .auditLogsEventHub.name }}'

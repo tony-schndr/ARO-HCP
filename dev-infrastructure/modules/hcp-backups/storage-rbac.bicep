@@ -1,8 +1,8 @@
 @description('Storage account name for HCP backups')
 param storageAccountName string
 
-@description('Principal ID of the Velero managed identity')
-param veleroManagedIdentityPrincipalId string
+@description('Principal IDs of the Velero managed identities (one per shard)')
+param veleroManagedIdentityPrincipalIds string[]
 
 // Storage Blob Data Contributor: Grants read, write, and delete access to blob containers and data
 // https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles#storage-blob-data-contributor
@@ -21,36 +21,42 @@ resource hcpBackupsStorageAccount 'Microsoft.Storage/storageAccounts@2022-09-01'
 }
 
 // ============================================================================
-// Velero Managed Identity - Role Assignments
+// Velero Managed Identities - Role Assignments
 // Roles: Storage Blob Data Contributor, Storage Account Key Operator, Reader
 // ============================================================================
 
-resource veleroStorageBlobDataContributorAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccountName, 'velero-blob-contributor', storageBlobDataContributorRole)
-  scope: hcpBackupsStorageAccount
-  properties: {
-    principalId: veleroManagedIdentityPrincipalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: resourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRole)
+resource veleroStorageBlobDataContributorAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
+  for i in range(0, length(veleroManagedIdentityPrincipalIds)): {
+    name: guid(storageAccountName, 'velero-blob-contributor-${i}', storageBlobDataContributorRole)
+    scope: hcpBackupsStorageAccount
+    properties: {
+      principalId: veleroManagedIdentityPrincipalIds[i]
+      principalType: 'ServicePrincipal'
+      roleDefinitionId: resourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRole)
+    }
   }
-}
+]
 
-resource veleroStorageAccountKeyOperatorAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccountName, 'velero-key-operator', storageAccountKeyOperatorRole)
-  scope: hcpBackupsStorageAccount
-  properties: {
-    principalId: veleroManagedIdentityPrincipalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: resourceId('Microsoft.Authorization/roleDefinitions', storageAccountKeyOperatorRole)
+resource veleroStorageAccountKeyOperatorAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
+  for i in range(0, length(veleroManagedIdentityPrincipalIds)): {
+    name: guid(storageAccountName, 'velero-key-operator-${i}', storageAccountKeyOperatorRole)
+    scope: hcpBackupsStorageAccount
+    properties: {
+      principalId: veleroManagedIdentityPrincipalIds[i]
+      principalType: 'ServicePrincipal'
+      roleDefinitionId: resourceId('Microsoft.Authorization/roleDefinitions', storageAccountKeyOperatorRole)
+    }
   }
-}
+]
 
-resource veleroReaderAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccountName, 'velero-reader', readerRole)
-  scope: hcpBackupsStorageAccount
-  properties: {
-    principalId: veleroManagedIdentityPrincipalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: resourceId('Microsoft.Authorization/roleDefinitions', readerRole)
+resource veleroReaderAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
+  for i in range(0, length(veleroManagedIdentityPrincipalIds)): {
+    name: guid(storageAccountName, 'velero-reader-${i}', readerRole)
+    scope: hcpBackupsStorageAccount
+    properties: {
+      principalId: veleroManagedIdentityPrincipalIds[i]
+      principalType: 'ServicePrincipal'
+      roleDefinitionId: resourceId('Microsoft.Authorization/roleDefinitions', readerRole)
+    }
   }
-}
+]

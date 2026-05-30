@@ -138,18 +138,20 @@ rules:
 - apiGroups: ["discovery.k8s.io"]
   resources: ["*"]
   verbs: ["*"]
+{{- range $i, $_ := until (int .Values.shardCount) }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: velero-cluster-role-binding
+  name: velero-cluster-role-binding-{{ $i }}
   labels:
     component: velero
 subjects:
 - kind: ServiceAccount
   name: velero
-  namespace: '{{ .Release.Namespace }}'
+  namespace: velero-{{ $i }}
 roleRef:
   kind: ClusterRole
   name: velero-cluster-role
   apiGroup: rbac.authorization.k8s.io
+{{- end }}

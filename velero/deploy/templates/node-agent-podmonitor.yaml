@@ -1,17 +1,20 @@
+{{- range $i, $_ := until (int $.Values.shardCount) }}
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  name: node-agent
-  namespace: '{{ .Release.Namespace }}'
+  name: node-agent-{{ $i }}
+  namespace: velero-{{ $i }}
 spec:
   selector:
     matchLabels:
       name: node-agent
   namespaceSelector:
     matchNames:
-    - '{{ .Release.Namespace }}'
+    - velero-{{ $i }}
   podMetricsEndpoints:
   - path: /metrics
     port: metrics
     scheme: http
     interval: 30s
+---
+{{- end }}

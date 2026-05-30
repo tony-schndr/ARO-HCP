@@ -1,7 +1,8 @@
+shardCount: "{{ .mgmt.hcpBackups.veleroShardCount }}"
 azureCloud: AzurePublicCloud
 tenantId: "__tenantId__"
 subscriptionId: "__subscriptionId__"
-clientId: "__veleroMsiClientId__"
+clientIds: "__veleroMsiClientIds__"
 resourceGroup: "{{ .mgmt.rg }}"
 bucket: "{{ .mgmt.hcpBackups.storageAccountContainerName }}"
 storageAccount: "__storageAccountName__"
@@ -22,8 +23,6 @@ hypershiftPlugin:
 configuration:
   features: EnableCSI
   uploaderType: kopia
-  deployNodeAgent: true
-  backupPrefix: velero
 nodeSelector:
   aro-hcp.azure.com/role: infra
 tolerations:

@@ -1,0 +1,7 @@
+{{- range $i, $_ := until (int .Values.shardCount) }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: velero-{{ $i }}
+---
+{{- end }}

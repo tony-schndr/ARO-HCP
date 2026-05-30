@@ -1,8 +1,9 @@
+{{- range $i, $_ := until (int $.Values.shardCount) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: velero-kustomize-patch
-  namespace: '{{ .Release.Namespace }}'
+  name: velero-kustomize-patch-{{ $i }}
+  namespace: velero-{{ $i }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "0"
@@ -18,7 +19,7 @@ data:
     kind: Deployment
     metadata:
       name: velero
-      namespace: {{ .Release.Namespace }}
+      namespace: velero-{{ $i }}
     spec:
       template:
         spec:
@@ -29,20 +30,22 @@ data:
             operator: "Equal"
             value: "true"
             effect: "NoSchedule"
-    ---
-    apiVersion: apps/v1
-    kind: DaemonSet
-    metadata:
-      name: node-agent
-      namespace: {{ .Release.Namespace }}
-    spec:
-      template:
-        spec:
-          priorityClassName: service-lifecycle-critical
-          nodeSelector:
-            aro-hcp.azure.com/role: infra
-          tolerations:
-          - key: "infra"
-            operator: "Equal"
-            value: "true"
-            effect: "NoSchedule"
+{{/*    ---*/}}
+{{/*    apiVersion: apps/v1*/}}
+{{/*    kind: DaemonSet*/}}
+{{/*    metadata:*/}}
+{{/*      name: node-agent*/}}
+{{/*      namespace: velero-{{ $i }}*/}}
+{{/*    spec:*/}}
+{{/*      template:*/}}
+{{/*        spec:*/}}
+{{/*          priorityClassName: service-lifecycle-critical*/}}
+{{/*          nodeSelector:*/}}
+{{/*            aro-hcp.azure.com/role: infra*/}}
+{{/*          tolerations:*/}}
+{{/*          - key: "infra"*/}}
+{{/*            operator: "Equal"*/}}
+{{/*            value: "true"*/}}
+{{/*            effect: "NoSchedule"*/}}
+---
+{{- end }}

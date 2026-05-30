@@ -1,34 +1,79 @@
 ---
+# Source: velero-hcp-cli/templates/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: velero-0
+---
+# Source: velero-hcp-cli/templates/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: velero-1
+---
 # Source: velero-hcp-cli/templates/installer-rbac.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: velero-installer
-  namespace: 'velero'
+  namespace: velero-0
   annotations:
-    azure.workload.identity/client-id: '__veleroMsiClientId__'
+    azure.workload.identity/client-id: '__veleroMsiClientIds__'
+---
+# Source: velero-hcp-cli/templates/installer-rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: velero-installer
+  namespace: velero-1
+  annotations:
+    azure.workload.identity/client-id: '__veleroMsiClientIds__'
 ---
 # Source: velero-hcp-cli/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   annotations:
-    azure.workload.identity/client-id: '__veleroMsiClientId__'
+    azure.workload.identity/client-id: '__veleroMsiClientIds__'
   name: velero
-  namespace: 'velero'
+  namespace: velero-0
+---
+# Source: velero-hcp-cli/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    azure.workload.identity/client-id: '__veleroMsiClientIds__'
+  name: velero
+  namespace: velero-1
 ---
 # Source: velero-hcp-cli/templates/credentials-secret.yaml
 apiVersion: v1
 kind: Secret
 metadata:
   name: cloud-credentials-azure
-  namespace: 'velero'
+  namespace: velero-0
 type: Opaque
 stringData:
   cloud: |-
     AZURE_SUBSCRIPTION_ID=__subscriptionId__
     AZURE_TENANT_ID=__tenantId__
-    AZURE_CLIENT_ID=__veleroMsiClientId__
+    AZURE_CLIENT_ID=__veleroMsiClientIds__
+    AZURE_RESOURCE_GROUP=hcp-underlay-dev-westus3-mgmt-1
+    AZURE_CLOUD_NAME=AzurePublicCloud
+---
+# Source: velero-hcp-cli/templates/credentials-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloud-credentials-azure
+  namespace: velero-1
+type: Opaque
+stringData:
+  cloud: |-
+    AZURE_SUBSCRIPTION_ID=__subscriptionId__
+    AZURE_TENANT_ID=__tenantId__
+    AZURE_CLIENT_ID=__veleroMsiClientIds__
     AZURE_RESOURCE_GROUP=hcp-underlay-dev-westus3-mgmt-1
     AZURE_CLOUD_NAME=AzurePublicCloud
 ---
@@ -230,11 +275,25 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: velero-installer
+  name: velero-installer-0
 subjects:
 - kind: ServiceAccount
   name: velero-installer
-  namespace: 'velero'
+  namespace: velero-0
+roleRef:
+  kind: ClusterRole
+  name: velero-installer
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: velero-hcp-cli/templates/installer-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: velero-installer-1
+subjects:
+- kind: ServiceAccount
+  name: velero-installer
+  namespace: velero-1
 roleRef:
   kind: ClusterRole
   name: velero-installer
@@ -244,13 +303,29 @@ roleRef:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: velero-cluster-role-binding
+  name: velero-cluster-role-binding-0
   labels:
     component: velero
 subjects:
 - kind: ServiceAccount
   name: velero
-  namespace: 'velero'
+  namespace: velero-0
+roleRef:
+  kind: ClusterRole
+  name: velero-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: velero-hcp-cli/templates/velero-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: velero-cluster-role-binding-1
+  labels:
+    component: velero
+subjects:
+- kind: ServiceAccount
+  name: velero
+  namespace: velero-1
 roleRef:
   kind: ClusterRole
   name: velero-cluster-role
@@ -260,8 +335,26 @@ roleRef:
 apiVersion: acrpull.microsoft.com/v1beta2
 kind: AcrPullBinding
 metadata:
-  name: velero-pull-binding
-  namespace: 'velero'
+  name: velero-pull-binding-0
+  namespace: velero-0
+spec:
+  acr:
+    environment: PublicCloud
+    server: 'arohcpsvcdev.azurecr.io'
+    scope: 'repository:oadp/oadp-velero-rhel9:pull repository:oadp/oadp-velero-plugin-for-microsoft-azure-rhel9:pull repository:oadp/oadp-hypershift-velero-plugin-rhel9:pull'
+  auth:
+    workloadIdentity:
+      serviceAccountRef: velero
+      clientID: '__imagePullerMsiClientId__'
+      tenantID: '__imagePullerMsiTenantId__'
+  serviceAccountName: velero
+---
+# Source: velero-hcp-cli/templates/acrpullbinding.yaml
+apiVersion: acrpull.microsoft.com/v1beta2
+kind: AcrPullBinding
+metadata:
+  name: velero-pull-binding-1
+  namespace: velero-1
 spec:
   acr:
     environment: PublicCloud
@@ -278,15 +371,34 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  name: node-agent
-  namespace: 'velero'
+  name: node-agent-0
+  namespace: velero-0
 spec:
   selector:
     matchLabels:
       name: node-agent
   namespaceSelector:
     matchNames:
-    - 'velero'
+    - velero-0
+  podMetricsEndpoints:
+  - path: /metrics
+    port: metrics
+    scheme: http
+    interval: 30s
+---
+# Source: velero-hcp-cli/templates/node-agent-podmonitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: node-agent-1
+  namespace: velero-1
+spec:
+  selector:
+    matchLabels:
+      name: node-agent
+  namespaceSelector:
+    matchNames:
+    - velero-1
   podMetricsEndpoints:
   - path: /metrics
     port: metrics
@@ -297,15 +409,34 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  name: velero
-  namespace: 'velero'
+  name: velero-0
+  namespace: velero-0
 spec:
   selector:
     matchLabels:
       deploy: velero
   namespaceSelector:
     matchNames:
-    - 'velero'
+    - velero-0
+  podMetricsEndpoints:
+  - path: /metrics
+    port: metrics
+    scheme: http
+    interval: 30s
+---
+# Source: velero-hcp-cli/templates/velero-podmonitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: velero-1
+  namespace: velero-1
+spec:
+  selector:
+    matchLabels:
+      deploy: velero
+  namespaceSelector:
+    matchNames:
+    - velero-1
   podMetricsEndpoints:
   - path: /metrics
     port: metrics
@@ -323,14 +454,15 @@ driver: disk.csi.azure.com
 deletionPolicy: Retain
 parameters:
   incremental: "true"
+  instantaccessdurationminutes: "60"
 
 ---
 # Source: velero-hcp-cli/templates/kustomize-patch.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: velero-kustomize-patch
-  namespace: 'velero'
+  name: velero-kustomize-patch-0
+  namespace: velero-0
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "0"
@@ -346,7 +478,7 @@ data:
     kind: Deployment
     metadata:
       name: velero
-      namespace: velero
+      namespace: velero-0
     spec:
       template:
         spec:
@@ -362,7 +494,57 @@ data:
     kind: DaemonSet
     metadata:
       name: node-agent
-      namespace: velero
+      namespace: velero-0
+    spec:
+      template:
+        spec:
+          priorityClassName: service-lifecycle-critical
+          nodeSelector:
+            aro-hcp.azure.com/role: infra
+          tolerations:
+          - key: "infra"
+            operator: "Equal"
+            value: "true"
+            effect: "NoSchedule"
+---
+# Source: velero-hcp-cli/templates/kustomize-patch.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: velero-kustomize-patch-1
+  namespace: velero-1
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+data:
+  kustomization.yaml: |
+    resources:
+    - velero.yaml
+    patchesStrategicMerge:
+    - scheduling-patch.yaml
+  scheduling-patch.yaml: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: velero
+      namespace: velero-1
+    spec:
+      template:
+        spec:
+          nodeSelector:
+            aro-hcp.azure.com/role: infra
+          tolerations:
+          - key: "infra"
+            operator: "Equal"
+            value: "true"
+            effect: "NoSchedule"
+    ---
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      name: node-agent
+      namespace: velero-1
     spec:
       template:
         spec:
@@ -379,8 +561,8 @@ data:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: velero-install
-  namespace: 'velero'
+  name: velero-install-0
+  namespace: velero-0
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "1"
@@ -413,11 +595,11 @@ spec:
           echo "Generating Velero manifest..."
 
           ./velero install \
-            --namespace velero \
+            --namespace velero-0 \
             --provider azure \
             --plugins arohcpsvcdev.azurecr.io/oadp/oadp-velero-plugin-for-microsoft-azure-rhel9@sha256:1234567890,arohcpsvcdev.azurecr.io/oadp/oadp-hypershift-velero-plugin-rhel9@sha256:1234567890 \
             --bucket backups \
-            --prefix velero \
+            --prefix velero/0 \
             --secret-file /credentials/cloud \
             --service-account-name velero \
             --pod-labels azure.workload.identity/use=true \
@@ -459,10 +641,7 @@ spec:
           kubectl kustomize /tmp | kubectl apply -f -
 
           echo "Velero manifest applied. Verifying deployment..."
-          kubectl rollout status deployment/velero -n velero --timeout=300s
-
-          echo "Verifying node-agent daemonset..."
-          kubectl rollout status daemonset/node-agent -n velero --timeout=300s
+          kubectl rollout status deployment/velero -n velero-0 --timeout=300s
 
           echo "Velero installation verified successfully."
         volumeMounts:
@@ -480,5 +659,110 @@ spec:
         emptyDir: {}
       - name: kustomize
         configMap:
-          name: velero-kustomize-patch
+          name: velero-kustomize-patch-0
+      restartPolicy: Never
+---
+# Source: velero-hcp-cli/templates/install-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: velero-install-1
+  namespace: velero-1
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  activeDeadlineSeconds: 1800
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: velero-installer
+      nodeSelector:
+        aro-hcp.azure.com/role: infra
+      tolerations:
+        - effect: NoSchedule
+          key: infra
+          operator: Equal
+          value: "true"
+      initContainers:
+      - name: generate-manifest
+        image: "arohcpsvcdev.azurecr.io/oadp/oadp-velero-rhel9@sha256:1234567890"
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          echo "Generating Velero manifest..."
+
+          ./velero install \
+            --namespace velero-1 \
+            --provider azure \
+            --plugins arohcpsvcdev.azurecr.io/oadp/oadp-velero-plugin-for-microsoft-azure-rhel9@sha256:1234567890,arohcpsvcdev.azurecr.io/oadp/oadp-hypershift-velero-plugin-rhel9@sha256:1234567890 \
+            --bucket backups \
+            --prefix velero/1 \
+            --secret-file /credentials/cloud \
+            --service-account-name velero \
+            --pod-labels azure.workload.identity/use=true \
+            --use-node-agent \
+            --features EnableCSI \
+            --uploader-type kopia \
+            --backup-location-config useAAD="true",resourceGroup=hcp-underlay-dev-westus3-mgmt-1,storageAccount=__storageAccountName__,subscriptionId=__subscriptionId__ \
+            --snapshot-location-config subscriptionId=__subscriptionId__ \
+            --image arohcpsvcdev.azurecr.io/oadp/oadp-velero-rhel9@sha256:1234567890 \
+            --dry-run -o yaml > /manifest/velero.yaml
+
+          echo "Manifest generated successfully."
+          cat /manifest/velero.yaml
+        volumeMounts:
+        - name: credentials
+          mountPath: /credentials
+          readOnly: true
+        - name: manifest
+          mountPath: /manifest
+      containers:
+      - name: apply-manifest
+        image: "mcr.microsoft.com/aks/command/runtime@sha256:1234567890"
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Setting up kustomize overlay..."
+          cp /kustomize/kustomization.yaml /tmp/
+          cp /kustomize/scheduling-patch.yaml /tmp/
+
+          echo "Patching long container names in manifest..."
+          manifest=$(cat /manifest/velero.yaml)
+          manifest="${manifest//redhat-user-workloads-ocp-art-tenant-oadp-hypershift-oadp-plugin-main/oadp-hypershift-plugin}"
+          echo "$manifest" > /tmp/velero.yaml
+
+          echo "Applying Velero manifest with kustomize..."
+          kubectl kustomize /tmp | kubectl apply -f -
+
+          echo "Velero manifest applied. Verifying deployment..."
+          kubectl rollout status deployment/velero -n velero-1 --timeout=300s
+
+          echo "Velero installation verified successfully."
+        volumeMounts:
+        - name: manifest
+          mountPath: /manifest
+          readOnly: true
+        - name: kustomize
+          mountPath: /kustomize
+          readOnly: true
+      volumes:
+      - name: credentials
+        secret:
+          secretName: cloud-credentials-azure
+      - name: manifest
+        emptyDir: {}
+      - name: kustomize
+        configMap:
+          name: velero-kustomize-patch-1
       restartPolicy: Never

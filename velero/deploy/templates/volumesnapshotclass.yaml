@@ -8,3 +8,4 @@ driver: disk.csi.azure.com
 deletionPolicy: Retain
 parameters:
   incremental: "true"
+  instantaccessdurationminutes: "60"

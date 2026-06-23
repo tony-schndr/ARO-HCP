@@ -29,6 +29,7 @@ import (
 
 	azcorearm "github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 
+	"github.com/Azure/ARO-HCP/backend/pkg/listers"
 	"github.com/Azure/ARO-HCP/internal/api"
 	"github.com/Azure/ARO-HCP/internal/api/arm"
 	"github.com/Azure/ARO-HCP/internal/database"
@@ -181,6 +182,34 @@ func (k *HCPExternalAuthKey) InitialController(controllerName string) *api.Contr
 			Conditions: []metav1.Condition{},
 		},
 	}
+}
+
+// ClusterHasActiveCreateOperation reports whether there is a non-terminal Create
+// operation whose ExternalID is the cluster itself. It inspects only the cluster's
+// own ActiveOperationID — operations on child resources (node pools, external auths)
+// are intentionally ignored because they do not affect whether the cluster itself
+// has finished provisioning. Returns false if the cluster has no active operation,
+// if the operation is not a Create, or if it has already reached a terminal state.
+func ClusterHasActiveCreateOperation(ctx context.Context, lister listers.ActiveOperationLister, cluster *api.HCPOpenShiftCluster) (bool, error) {
+	logger := utils.LoggerFromContext(ctx)
+	if len(cluster.ServiceProviderProperties.ActiveOperationID) == 0 {
+		logger.Info("Cluster has no active create operation", "cluster", cluster.Name)
+		return false, nil
+	}
+	operation, err := lister.Get(ctx, cluster.ResourceID.SubscriptionID, cluster.ServiceProviderProperties.ActiveOperationID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get operation %q for cluster: %w", cluster.ServiceProviderProperties.ActiveOperationID, err)
+	}
+	if operation.Request != database.OperationRequestCreate {
+		logger.Info("Cluster active operation is not a create", "cluster", cluster.Name, "operation", operation.Request)
+		return false, nil
+	}
+	if operation.Status.IsTerminal() {
+		logger.Info("Cluster create operation is terminal", "cluster", cluster.Name, "operation", operation.Request)
+		return false, nil
+	}
+	logger.Info("Cluster has active create operation in flight", "cluster", cluster.Name)
+	return true, nil
 }
 
 // controllerMutationFunc is called when trying to write a controller. It gives a spot for computation of a value.

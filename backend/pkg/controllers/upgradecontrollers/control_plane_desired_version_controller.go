@@ -590,7 +590,7 @@ func (c *controlPlaneDesiredVersionSyncer) shouldDetermineDesiredVersion(ctx con
 	if c.clusterOlderThanGracePeriod(cluster) {
 		return true, nil
 	}
-	hasCreate, err := c.clusterHasActiveCreateOperation(ctx, cluster)
+	hasCreate, err := controllerutils.ClusterHasActiveCreateOperation(ctx, c.activeOperationLister, cluster)
 	if err != nil {
 		return true, err
 	}
@@ -606,30 +606,4 @@ func (c *controlPlaneDesiredVersionSyncer) clusterOlderThanGracePeriod(cluster *
 		return true
 	}
 	return c.clock.Since(*cluster.SystemData.CreatedAt) > clusterCreateGracePeriod
-}
-
-// hasActiveClusterCreateOperation reports whether there is a non-terminal
-// Create operation whose ExternalID is the cluster itself. Operations on
-// child resources (node pools, external auths) under the cluster are
-// ignored on purpose: they don't gate control-plane upgrade selection.
-func (c *controlPlaneDesiredVersionSyncer) clusterHasActiveCreateOperation(ctx context.Context, cluster *api.HCPOpenShiftCluster) (bool, error) {
-	logger := utils.LoggerFromContext(ctx)
-	if len(cluster.ServiceProviderProperties.ActiveOperationID) == 0 {
-		logger.Info("Cluster has no active create operation", "cluster", cluster.Name)
-		return false, nil
-	}
-	operation, err := c.activeOperationLister.Get(ctx, cluster.ResourceID.SubscriptionID, cluster.ServiceProviderProperties.ActiveOperationID)
-	if err != nil {
-		return false, fmt.Errorf("failed to get operations %q for cluster: %w", cluster.ServiceProviderProperties.ActiveOperationID, err)
-	}
-	if operation.Request != database.OperationRequestCreate {
-		logger.Info("Cluster has active create operation but it is not a create operation", "cluster", cluster.Name, "operation", operation.Request)
-		return false, nil
-	}
-	if operation.Status.IsTerminal() {
-		logger.Info("Cluster has active create operation but it is terminal", "cluster", cluster.Name, "operation", operation.Request)
-		return false, nil
-	}
-	logger.Info("Cluster has active create operation", "cluster", cluster.Name, "operation", operation.Request)
-	return true, nil
 }

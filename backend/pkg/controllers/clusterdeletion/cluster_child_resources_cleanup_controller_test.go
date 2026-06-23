@@ -128,6 +128,35 @@ func TestClusterChildResourcesCleanupController_SyncOnce(t *testing.T) {
 			},
 		}
 	}
+	newTestBackupApplyDesire := func(name string) *kubeapplier.ApplyDesire {
+		ad := newTestClusterScopedApplyDesire(name)
+		ad.Spec.TargetItem = kubeapplier.ResourceReference{
+			Group: "velero.io", Version: "v1", Resource: "schedules",
+			Namespace: "velero", Name: name,
+		}
+		return ad
+	}
+	newTestClusterScopedDeleteDesire := func(name string) *kubeapplier.DeleteDesire {
+		resourceID := api.Must(azcorearm.ParseResourceID(
+			kubeapplier.ToClusterScopedDeleteDesireResourceIDString(
+				testSubscriptionID, testResourceGroupName, testClusterName, name)))
+		return &kubeapplier.DeleteDesire{
+			CosmosMetadata: api.CosmosMetadata{
+				ResourceID:   resourceID,
+				PartitionKey: strings.ToLower(managementClusterResourceID.String()),
+			},
+			Spec: kubeapplier.DeleteDesireSpec{
+				ManagementCluster: managementClusterResourceID,
+			},
+		}
+	}
+	newTestSuccessfulDeleteDesire := func(name string) *kubeapplier.DeleteDesire {
+		dd := newTestClusterScopedDeleteDesire(name)
+		dd.Status.Conditions = []metav1.Condition{
+			{Type: kubeapplier.ConditionTypeSuccessful, Status: metav1.ConditionTrue},
+		}
+		return dd
+	}
 	newTestNodePoolScopedDeleteDesire := func(nodePoolName, name string) *kubeapplier.DeleteDesire {
 		resourceID := api.Must(azcorearm.ParseResourceID(
 			kubeapplier.ToNodePoolScopedDeleteDesireResourceIDString(
@@ -499,6 +528,96 @@ func TestClusterChildResourcesCleanupController_SyncOnce(t *testing.T) {
 				spcCRUD := db.ServiceProviderClusters(testSubscriptionID, testResourceGroupName, testClusterName)
 				_, err = spcCRUD.Get(ctx, api.ServiceProviderClusterResourceName)
 				require.NoError(t, err, "expected SPC to still exist")
+			},
+		},
+		{
+			name:            "backup ApplyDesires are not swept -- DeleteDesires are created instead",
+			existingCluster: newTestClusterWithNewDeletionApproach(t, readyToDeleteClusterOptsFunc),
+			childResources: []any{
+				newTestSPCWithManagementCluster(managementClusterResourceID),
+			},
+			kubeApplierDesires: []any{
+				newTestBackupApplyDesire("backup-hourly"),
+				newTestClusterScopedReadDesire("backup-hourly"),
+			},
+			verifyDB: func(t *testing.T, ctx context.Context, db *databasetesting.MockResourcesDBClient, kubeApplierDBClients *databasetesting.MockKubeApplierDBClients) {
+				client := kubeApplierDBClients.For(ctx, managementClusterResourceID)
+				require.NotNil(t, client)
+
+				adCrud, err := client.ApplyDesiresForCluster(testSubscriptionID, testResourceGroupName, testClusterName)
+				require.NoError(t, err)
+				_, err = adCrud.Get(ctx, "backup-hourly")
+				require.NoError(t, err, "backup ApplyDesire should still exist (protected by gate)")
+
+				ddCrud, err := client.DeleteDesiresForCluster(testSubscriptionID, testResourceGroupName, testClusterName)
+				require.NoError(t, err)
+				dd, err := ddCrud.Get(ctx, "backup-hourly")
+				require.NoError(t, err, "DeleteDesire should be created for backup schedule")
+				assert.Equal(t, "velero.io", dd.Spec.TargetItem.Group)
+				assert.Equal(t, "schedules", dd.Spec.TargetItem.Resource)
+
+				rdCrud, err := client.ReadDesiresForCluster(testSubscriptionID, testResourceGroupName, testClusterName)
+				require.NoError(t, err)
+				_, err = rdCrud.Get(ctx, "backup-hourly")
+				require.True(t, database.IsNotFoundError(err), "backup ReadDesire should be deleted (no gate)")
+
+				spcCRUD := db.ServiceProviderClusters(testSubscriptionID, testResourceGroupName, testClusterName)
+				_, err = spcCRUD.Get(ctx, api.ServiceProviderClusterResourceName)
+				require.NoError(t, err, "SPC should still exist (desires remain)")
+			},
+		},
+		{
+			name:            "backup desires are fully cleaned up when DeleteDesire is successful",
+			existingCluster: newTestClusterWithNewDeletionApproach(t, readyToDeleteClusterOptsFunc),
+			childResources: []any{
+				newTestSPCWithManagementCluster(managementClusterResourceID),
+			},
+			kubeApplierDesires: []any{
+				newTestBackupApplyDesire("backup-hourly"),
+				newTestClusterScopedReadDesire("backup-hourly"),
+				newTestSuccessfulDeleteDesire("backup-hourly"),
+			},
+			verifyDB: func(t *testing.T, ctx context.Context, db *databasetesting.MockResourcesDBClient, kubeApplierDBClients *databasetesting.MockKubeApplierDBClients) {
+				assertNoClusterScopedKubeApplierResources(t, ctx, kubeApplierDBClients)
+
+				spcCRUD := db.ServiceProviderClusters(testSubscriptionID, testResourceGroupName, testClusterName)
+				_, err := spcCRUD.Get(ctx, api.ServiceProviderClusterResourceName)
+				require.True(t, database.IsNotFoundError(err), "SPC should be deleted (all desires gone)")
+			},
+		},
+		{
+			name:            "orphaned backup DeleteDesire is cleaned up when successful",
+			existingCluster: newTestClusterWithNewDeletionApproach(t, readyToDeleteClusterOptsFunc),
+			childResources: []any{
+				newTestSPCWithManagementCluster(managementClusterResourceID),
+			},
+			kubeApplierDesires: []any{
+				newTestSuccessfulDeleteDesire("backup-old-schedule"),
+			},
+			verifyDB: func(t *testing.T, ctx context.Context, db *databasetesting.MockResourcesDBClient, kubeApplierDBClients *databasetesting.MockKubeApplierDBClients) {
+				assertNoClusterScopedKubeApplierResources(t, ctx, kubeApplierDBClients)
+
+				spcCRUD := db.ServiceProviderClusters(testSubscriptionID, testResourceGroupName, testClusterName)
+				_, err := spcCRUD.Get(ctx, api.ServiceProviderClusterResourceName)
+				require.True(t, database.IsNotFoundError(err), "SPC should be deleted (all desires gone)")
+			},
+		},
+		{
+			name:            "non-backup ApplyDesires are still swept normally",
+			existingCluster: newTestClusterWithNewDeletionApproach(t, readyToDeleteClusterOptsFunc),
+			childResources: []any{
+				newTestSPCWithManagementCluster(managementClusterResourceID),
+			},
+			kubeApplierDesires: []any{
+				newTestClusterScopedApplyDesire("non-backup-desire"),
+				newTestClusterScopedReadDesire("non-backup-desire"),
+			},
+			verifyDB: func(t *testing.T, ctx context.Context, db *databasetesting.MockResourcesDBClient, kubeApplierDBClients *databasetesting.MockKubeApplierDBClients) {
+				assertNoClusterScopedKubeApplierResources(t, ctx, kubeApplierDBClients)
+
+				spcCRUD := db.ServiceProviderClusters(testSubscriptionID, testResourceGroupName, testClusterName)
+				_, err := spcCRUD.Get(ctx, api.ServiceProviderClusterResourceName)
+				require.True(t, database.IsNotFoundError(err), "SPC should be deleted")
 			},
 		},
 	}

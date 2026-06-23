@@ -29,6 +29,14 @@ import (
 	"github.com/Azure/ARO-HCP/internal/utils"
 )
 
+// BackupScheduleState represents the desired state of backup scheduling for a cluster.
+type BackupScheduleState string
+
+const (
+	BackupScheduleStateActive BackupScheduleState = "Active"
+	BackupScheduleStatePaused BackupScheduleState = "Paused"
+)
+
 const (
 	// ServiceProviderClusterResourceName is the name of the ServiceProviderCluster resource.
 	// ServiceProviderCluster is a singleton resource and ARM convention is to
@@ -68,6 +76,10 @@ type ServiceProviderClusterSpec struct {
 	// Once this contains the critical values, we will create it on management clusters.
 	// We may or may not choose to store the actual state in status.  We may choose to store the actual state independently.
 	DesiredHostedCluster *v1beta1.HostedCluster `json:"desiredHostedCluster,omitempty"`
+
+	// BackupState is the desired backup scheduling state: Active or Paused.
+	// Default is Active. Set to Paused via Admin API to stop scheduled backups.
+	BackupState BackupScheduleState `json:"backupState,omitempty"`
 }
 
 // ServiceProviderClusterSpecVersion contains the desired version information.

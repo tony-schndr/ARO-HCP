@@ -28,6 +28,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	utilsclock "k8s.io/utils/clock"
 	"k8s.io/utils/set"
 
 	"github.com/Azure/azure-kusto-go/kusto"
@@ -81,6 +82,8 @@ func NewAdminAPI(
 	maxSessionTTL time.Duration,
 	allowedBreakglassGroups set.Set[string],
 	gatherer prometheus.Gatherer,
+	kubeApplierDBClients database.KubeApplierDBClients,
+	clock utilsclock.PassiveClock,
 ) *AdminAPI {
 	// Pre-mux middleware (runs on all admin routes before pattern matching)
 	middlewareMux := middleware.NewMiddlewareMux(
@@ -121,6 +124,22 @@ func NewAdminAPI(
 	middlewareMux.Handle(
 		middleware.V1HCPResourcePattern("GET", "/serialconsole"),
 		hcpMiddleware.HandlerFunc(errorutils.ReportError(hcp.NewHCPSerialConsoleHandler(resourcesDBClient, fpaCredentialRetriever).ServeHTTP)),
+	)
+	middlewareMux.Handle(
+		middleware.V1HCPResourcePattern("GET", "/backups/{backupName}"),
+		hcpMiddleware.Handler(hcp.GetBackup(resourcesDBClient, kubeApplierDBClients, clock)),
+	)
+	middlewareMux.Handle(
+		middleware.V1HCPResourcePattern("POST", "/backups"),
+		hcpMiddleware.Handler(hcp.CreateBackup(resourcesDBClient, kubeApplierDBClients, clock)),
+	)
+	middlewareMux.Handle(
+		middleware.V1HCPResourcePattern("GET", "/backupschedules"),
+		hcpMiddleware.Handler(hcp.NewHCPGetBackupScheduleHandler(resourcesDBClient, kubeApplierDBClients)),
+	)
+	middlewareMux.Handle(
+		middleware.V1HCPResourcePattern("PATCH", "/backupschedules"),
+		hcpMiddleware.Handler(hcp.NewHCPPatchBackupScheduleHandler(resourcesDBClient)),
 	)
 
 	// Non-HCP admin routes

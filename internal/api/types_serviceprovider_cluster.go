@@ -37,6 +37,18 @@ const (
 	BackupScheduleStatePaused  BackupScheduleState = "Paused"
 )
 
+// RecoveryState represents the progress of a recovery operation for a cluster.
+type RecoveryState string
+
+const (
+	RecoveryStatePending           RecoveryState = "Pending"
+	RecoveryStateRecoveryCRCreated RecoveryState = "RecoveryCRCreated"
+	RecoveryStateMonitoring        RecoveryState = "Monitoring"
+	RecoveryStateRestoring         RecoveryState = "Restoring"
+	RecoveryStateCompleted         RecoveryState = "Completed"
+	RecoveryStateFailed            RecoveryState = "Failed"
+)
+
 const (
 	// ServiceProviderClusterResourceName is the name of the ServiceProviderCluster resource.
 	// ServiceProviderCluster is a singleton resource and ARM convention is to
@@ -113,6 +125,15 @@ type ServiceProviderClusterSpec struct {
 	// BackupState is the desired backup scheduling state: Enabled or Paused.
 	// Default is Enabled. Set to Paused via Admin API to stop scheduled backups.
 	BackupState BackupScheduleState `json:"backupState,omitempty"`
+
+	RecoveryRequests RecoveryRequests `json:"recoveryRequests,omitempty"`
+}
+
+type RecoveryRequests []RecoveryRequest
+
+type RecoveryRequest struct {
+	RecoveryId string `json:"recoveryId"`
+	BackupId   string `json:"backupId"`
 }
 
 // ServiceProviderClusterSpecVersion contains the desired version information.
@@ -184,6 +205,15 @@ type ServiceProviderClusterStatus struct {
 	// is no signal on Spec alone that dispatch still needs to clear the CS
 	// property.
 	DesiredHostedClusterControlPlaneSize *string `json:"desiredHostedClusterControlPlaneSize,omitempty"`
+
+	Recoveries []RecoveryStatus `json:"recoveries,omitempty"`
+}
+
+type RecoveryStatus struct {
+	RecoveryId  string        `json:"recoveryId"`
+	State       RecoveryState `json:"state,omitempty"`
+	StartedAt   *metav1.Time  `json:"startedAt,omitempty"`
+	CompletedAt *metav1.Time  `json:"completedAt,omitempty"`
 }
 
 // ServiceProviderClusterStatusVersion contains the actual version information.

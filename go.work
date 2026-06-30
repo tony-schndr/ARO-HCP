@@ -9,6 +9,7 @@ use (
 	./frontend
 	./hack/verify-gomega-assertions
 	./hack/verify-schema-additional-properties
+	./hcp-recovery
 	./internal
 	./kube-applier
 	./mgmt-agent

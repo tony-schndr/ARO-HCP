@@ -26,6 +26,7 @@ import (
 const (
 	BackupScheduleDesireNamePrefix = "backupschedule-"
 	OndemandBackupDesireNamePrefix = "ondemandbackup-"
+	RecoveryDesireNamePrefix = "hcprecovery-"
 )
 
 var backupIncludedResources = []string{

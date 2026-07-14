@@ -452,9 +452,9 @@ defaults:
       repository: oadp/oadp-velero-plugin-for-microsoft-azure-rhel9
       digest: sha256:ae843581d7d0cf576c24aa5a9d65a644f03b7db7e19b51b26107590bd73f19dc # 1.6.1 (2026-07-10 13:56)
     hypershiftPlugin:
-      registry: registry.stage.redhat.io
-      repository: oadp/oadp-hypershift-velero-plugin-rhel9
-      digest: sha256:8aa456dee5c9f99c6ebc7458aecfe8464f182775d3594d9ed036381ee22dd532 # 1.6.1 (2026-07-10 14:00)
+      registry: quay.io
+      repository: rh_ee_tschneid/hypershift-oadp-plugin
+      digest: sha256:b4b82dc2d5dac832b930c816afcc19b5bd1b556d16ebfa0b9fee8780be62cdca
   # SVC cluster specifics
   svc:
     subscription:

@@ -442,3 +442,29 @@ func (csc *clusterServiceClientWithTracing) PostNodePoolUpgradePolicy(ctx contex
 
 	return policy, err
 }
+
+func (csc *clusterServiceClientWithTracing) StartRestore(ctx context.Context, internalID InternalID) error {
+	ctx, span := csc.startChildSpan(ctx, "ClusterServiceClient.StartRestore")
+	defer span.End()
+
+	span.SetAttributes(tracing.ClusterIDKey.String(internalID.ID()))
+	err := csc.csc.StartRestore(ctx, internalID)
+	if err != nil {
+		span.RecordError(err)
+	}
+
+	return err
+}
+
+func (csc *clusterServiceClientWithTracing) CompleteRestore(ctx context.Context, internalID InternalID) error {
+	ctx, span := csc.startChildSpan(ctx, "ClusterServiceClient.CompleteRestore")
+	defer span.End()
+
+	span.SetAttributes(tracing.ClusterIDKey.String(internalID.ID()))
+	err := csc.csc.CompleteRestore(ctx, internalID)
+	if err != nil {
+		span.RecordError(err)
+	}
+
+	return err
+}

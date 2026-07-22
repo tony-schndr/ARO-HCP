@@ -19,6 +19,7 @@ package ocm
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 
 	sdk "github.com/openshift-online/ocm-sdk-go"
@@ -166,6 +167,14 @@ type ClusterServiceClientSpec interface {
 
 	// PostNodePoolUpgradePolicy sends a POST request to create a node pool upgrade policy in Cluster Service.
 	PostNodePoolUpgradePolicy(ctx context.Context, nodePoolInternalID InternalID, builder *arohcpv1alpha1.NodePoolUpgradePolicyBuilder) (*arohcpv1alpha1.NodePoolUpgradePolicy, error)
+
+	// StartRestore sends a PUT request to clusters service to prepare the cluster for restoration.
+	// StartRestore sets all ManifestWork objects to read only
+	StartRestore(ctx context.Context, internalID InternalID) error
+
+	// CompleteRestore sends a PUT request to complete a cluster restore in Cluster Service.
+	// CompleteRestore sets all ManifestWork objects to there original state
+	CompleteRestore(ctx context.Context, internalID InternalID) error
 }
 
 type clusterServiceClient struct {
@@ -770,6 +779,36 @@ func (csc *clusterServiceClient) PostNodePoolUpgradePolicy(ctx context.Context, 
 		return nil, fmt.Errorf("empty response body")
 	}
 	return policy, nil
+}
+
+func (csc *clusterServiceClient) StartRestore(ctx context.Context, internalID InternalID) error {
+	if _, ok := getAroHCPClusterClient(internalID, csc.conn); !ok {
+		return fmt.Errorf("OCM path is not a cluster: %s", internalID)
+	}
+	return csc.doRestorePut(ctx, csc.conn.URL()+internalID.Path()+"/restore")
+}
+
+func (csc *clusterServiceClient) CompleteRestore(ctx context.Context, internalID InternalID) error {
+	if _, ok := getAroHCPClusterClient(internalID, csc.conn); !ok {
+		return fmt.Errorf("OCM path is not a cluster: %s", internalID)
+	}
+	return csc.doRestorePut(ctx, csc.conn.URL()+internalID.Path()+"/restore/complete")
+}
+
+func (csc *clusterServiceClient) doRestorePut(ctx context.Context, url string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, nil)
+	if err != nil {
+		return utils.TrackError(err)
+	}
+	resp, err := (&http.Client{Transport: csc.conn}).Do(req)
+	if err != nil {
+		return utils.TrackError(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusBadRequest {
+		return fmt.Errorf("restore PUT to %s failed with status %d", url, resp.StatusCode)
+	}
+	return nil
 }
 
 // NewOpenShiftVersionXY parses the given version, stripping off any

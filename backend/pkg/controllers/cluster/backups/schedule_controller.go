@@ -142,7 +142,6 @@ func (c *backupScheduleSyncer) SyncOnce(ctx context.Context, key controllerutils
 	hostedClusterNamespace := cachedServiceProviderCluster.Status.HostedClusterNamespace
 	controlPlaneNamespace := cachedServiceProviderCluster.Status.ControlPlaneNamespace
 	managementClusterResourceID := cachedServiceProviderCluster.Status.ManagementClusterResourceID
-	clusterPaused := cachedServiceProviderCluster.Spec.BackupScheduleState == coreapi.BackupScheduleStateDisabled
 
 	kubeApplierClient := c.kubeApplierDBClients.For(ctx, cachedServiceProviderCluster.Status.ManagementClusterResourceID)
 	if kubeApplierClient == nil {
@@ -183,10 +182,16 @@ func (c *backupScheduleSyncer) SyncOnce(ctx context.Context, key controllerutils
 		}
 	}
 
+	// Velero Schedules are paused unless all three levers agree the cluster should
+	// be backing up; see BackupConfig.SchedulePaused for the precedence.
+	paused := c.backupConfig.SchedulePaused(
+		cachedServiceProviderCluster.Spec.BackupScheduleState,
+		cachedCluster.ServiceProviderProperties.ExperimentalFeatures.BackupScheduleOverride,
+	)
+
 	configSchedules := c.backupConfig.Schedules()
 	schedules := make([]*velerov1.Schedule, 0, len(configSchedules))
 	for _, scheduleConfig := range configSchedules {
-		paused := c.backupConfig.BackupScheduleState == coreapi.BackupScheduleStateDisabled || clusterPaused
 		schedule := NewScheduledBackup(resourceID, kmsKeyFingerprint, hostedClusterNamespace, controlPlaneNamespace, scheduleConfig, paused)
 		schedules = append(schedules, schedule)
 	}

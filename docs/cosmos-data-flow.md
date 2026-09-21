@@ -257,7 +257,7 @@ No resource document is modified.
 
 | | Object | Fields |
 |---|--------|--------|
-| Read | `ServiceProviderCluster` | <ul><li>`Spec.BackupState` (returned as schedule state; defaults to `Enabled` if empty)</li><li>`Status.ManagementClusterResourceID` (precondition: must not be nil)</li></ul> |
+| Read | `ServiceProviderCluster` | <ul><li>`Spec.BackupScheduleState` (returned as schedule state; defaults to `Enabled` if empty)</li><li>`Status.ManagementClusterResourceID` (precondition: must not be nil)</li></ul> |
 | Read | `ReadDesire` (kube-applier DB) | <ul><li>`ResourceID.Name` (filtered to backup schedule prefix)</li><li>`Status.KubeContent` (Velero `Schedule` status: `LastBackup`, `Phase`, `Paused`)</li></ul> |
 
 No writes to Cosmos Resources container.
@@ -269,7 +269,7 @@ No writes to Cosmos Resources container.
 
 | Object | Fields Written |
 |--------|---------------|
-| `ServiceProviderCluster` | <ul><li>**`Spec.BackupState`** = `Enabled` or `Paused` (from request body)</li></ul> |
+| `ServiceProviderCluster` | <ul><li>**`Spec.BackupScheduleState`** = `Enabled` or `Disabled` (from request body)</li></ul> |
 
 ### Admin API: GET OnDemandBackups
 
@@ -1238,7 +1238,7 @@ Records the observed placement (`Status.ManagementClusterResourceID`) from the C
 
 #### BackupScheduleSyncer
 
-**File:** [schedule_controller.go](../backend/pkg/controllers/backupcontroller/schedule_controller.go)
+**File:** [schedule_controller.go](../backend/pkg/controllers/cluster/backups/schedule_controller.go)
 **Trigger:** Cluster informer, periodic resync
 **Gate (needsWork on Cluster):**
 - `Cluster.ServiceProviderProperties.DeletionTimestamp` == nil
@@ -1246,9 +1246,9 @@ Records the observed placement (`Status.ManagementClusterResourceID`) from the C
 
 | | Object | Fields |
 |---|--------|--------|
-| Read | `HCPOpenShiftCluster` | <ul><li>`ServiceProviderProperties.DeletionTimestamp` (needsWork: must be nil)</li><li>`ServiceProviderProperties.BillingDocumentCosmosID` (needsWork: must be non-empty)</li><li>`ServiceProviderProperties.ClusterServiceID` (SyncOnce: must not be nil)</li><li>`CustomerProperties.DNS.BaseDomainPrefix` (SyncOnce: must be non-empty)</li></ul> |
-| Read | `ServiceProviderCluster` | <ul><li>`Spec.BackupState` (determines whether per-cluster schedules are paused)</li><li>`Status.ManagementClusterResourceID` (SyncOnce: must not be nil)</li></ul> |
-| **Write** | `ApplyDesire` (kube-applier DB) | <ul><li>Creates/replaces one Velero `Schedule` ApplyDesire per configured backup schedule; sets `Spec.Paused` based on global pause config or `Spec.BackupState == Paused`</li></ul> |
+| Read | `HCPOpenShiftCluster` | <ul><li>`ServiceProviderProperties.DeletionTimestamp` (needsWork: must be nil)</li><li>`ServiceProviderProperties.BillingDocumentCosmosID` (needsWork: must be non-empty)</li><li>`ServiceProviderProperties.ClusterServiceID` (SyncOnce: must not be nil)</li><li>`ServiceProviderProperties.ExperimentalFeatures.BackupScheduleOverride` (lifts the deployment-wide pause for this cluster)</li><li>`CustomerProperties.DNS.BaseDomainPrefix` (SyncOnce: must be non-empty)</li></ul> |
+| Read | `ServiceProviderCluster` | <ul><li>`Spec.BackupScheduleState` (per-cluster admin API pause; outranks the override)</li><li>`Status.ManagementClusterResourceID` (SyncOnce: must not be nil)</li></ul> |
+| **Write** | `ApplyDesire` (kube-applier DB) | <ul><li>Creates/replaces one Velero `Schedule` ApplyDesire per configured backup schedule; sets `Spec.Paused` to `Spec.BackupScheduleState == Disabled \|\| (global pause config == Disabled && BackupScheduleOverride != Enabled)`</li></ul> |
 | **Write** | `ReadDesire` (kube-applier DB) | <ul><li>Creates/replaces one ReadDesire per schedule to observe `Schedule` status on the management cluster</li></ul> |
 
 No writes to the Cosmos Resources container.
@@ -1758,13 +1758,13 @@ Single writer. Read by [OperationClusterCreate](#operationclustercreate) to gate
 | [ClusterDeletionController](#clusterdeletioncontroller) | Sets when cluster document is being deleted |
 | [OrphanedBillingCleanup](#orphanedbillingcleanup) | Sets when billing doc has no corresponding cluster |
 
-### `ServiceProviderCluster.Spec.BackupState`
+### `ServiceProviderCluster.Spec.BackupScheduleState`
 
 | Actor | When |
 |-------|------|
-| [Admin API PATCH BackupSchedule](#admin-api-patch-backupschedule) | SRE sets `Enabled` or `Paused` via Admin API |
+| [Admin API PATCH BackupSchedule](#admin-api-patch-backupschedule) | SRE sets `Enabled` or `Disabled` via Admin API |
 
-Single writer. Read by [Admin API GET BackupSchedule](#admin-api-get-backupschedule) (returned in response) and [BackupScheduleSyncer](#backupschedulesyncer) (determines whether Velero schedules are paused).
+Single writer. Read by [Admin API GET BackupSchedule](#admin-api-get-backupschedule) (returned in response) and [BackupScheduleSyncer](#backupschedulesyncer) (highest-precedence input to whether Velero schedules are paused; outranks both the deployment-wide pause and `ExperimentalFeatures.BackupScheduleOverride`).
 
 ---
 

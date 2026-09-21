@@ -44,6 +44,16 @@ type ExperimentalFeatures struct {
 	// upgrade control plane version controllers use this value directly as the
 	// desired control plane version and skip graph/gateway-based resolution.
 	ControlPlaneExactVersion *semver.Version `json:"controlPlaneExactVersion,omitempty"`
+
+	// BackupScheduleOverride force-enables the cluster's Velero backup Schedules
+	// against the backend's deployment-wide --backup-schedule-state. When set to
+	// BackupScheduleStateEnabled, the backup schedule controller emits Schedules
+	// with spec.paused=false even though the deployment default is Disabled. The
+	// per-cluster admin API pause (ServiceProviderCluster.Spec.BackupScheduleState)
+	// still wins over this override. It is never set to Disabled: the absence of an
+	// override is the empty value, and admission rejects any tag value other than
+	// "Enabled".
+	BackupScheduleOverride BackupScheduleState `json:"backupScheduleOverride,omitempty"`
 }
 
 // ControlPlaneAvailability controls the AvailabilityPolicy for control plane components.

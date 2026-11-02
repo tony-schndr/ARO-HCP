@@ -3,6 +3,7 @@ module github.com/Azure/ARO-HCP/admin/server
 go 1.26.0
 
 require (
+	github.com/Azure/ARO-HCP/hcp-recovery v0.0.0-00010101000000-000000000000
 	github.com/Azure/ARO-HCP/internal v0.0.0-00010101000000-000000000000
 	github.com/Azure/ARO-HCP/sessiongate v0.0.0-00010101000000-000000000000
 	github.com/Azure/azure-kusto-go v0.16.1
@@ -169,6 +170,8 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/Azure/ARO-HCP/hcp-recovery => ../../hcp-recovery
 
 replace github.com/Azure/ARO-HCP/internal => ../../internal
 

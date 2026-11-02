@@ -24,11 +24,35 @@ This prefix is abbreviated as `{resourceId}` below.
 | `GET` | `/admin/v1/hcp{resourceId}/backupschedules` | Get backup schedule state and per-schedule status |
 | `PATCH` | `/admin/v1/hcp{resourceId}/backupschedules` | Enable or disable scheduled backups |
 | `GET` | `/admin/v1/hcp{resourceId}/backups` | List on-demand backups |
+| `POST` | `/admin/v1/hcp{resourceId}/backups` | Take an on-demand backup |
+| `POST` | `/admin/v1/hcp{resourceId}/restore` | Request a restore from a backup ([details](#restores)) |
+| `GET` | `/admin/v1/hcp{resourceId}/restore[?recoveryID=...]` | Get one recovery, or list every recovery for the cluster ([details](#restores)) |
 | `POST` | `/admin/v1/hcp{resourceId}/controlplaneversionpin` | Pin a cluster's control plane to a version in its release line, or clear the pin (omit `exactVersion`) |
 | `POST` | `/admin/v1/versionrollouts/{channel}/controlplaneversionpin` | Set or clear control-plane pins for existing clusters in a regional y-stream channel |
 | `GET` | `/healthz/ready` | Readiness probe |
 | `GET` | `/healthz/live` | Liveness probe |
 | `GET` | `/metrics` | Prometheus metrics (served on the metrics port) |
+
+### Restores
+
+`POST /restore` takes `{"backupID": "<velero backup name>"}` and enqueues a recovery
+request onto the cluster's `ServiceProviderCluster`. It returns the minted `recoveryID`
+with `recoveryState: "Pending"`. Only one recovery may be in flight per cluster; a
+second request while one is non-terminal is rejected with `409`.
+
+`GET /restore?recoveryID=<id>` reports that recovery. `GET /restore` with no query
+parameter lists every recovery for the cluster, newest first.
+
+Both forms carry a `status` object: the `HCPRecovery` status observed on the management
+cluster, proxied verbatim through the recovery ReadDesire. Where `recoveryState` collapses
+the whole restore into one of `Pending`, `RecoveryCRCreated`, `InProgress`, `Completed` or
+`Failed`, `status` is what an SRE actually watches — `phase` walking
+`Preparing → Restoring → Validating → Completed`, the per-step `conditions` with their reasons and
+messages, the Velero `restoreName`, and `etcdSnapshot` (source member, sha256, revision).
+
+`status` is absent until the backend has created the `HCPRecovery` and kube-applier has
+observed it, so a `Pending` recovery has none. Placement that has not resolved yet, or an
+unavailable kube-applier client, likewise leaves it absent rather than failing the request.
 
 ### Version pins
 

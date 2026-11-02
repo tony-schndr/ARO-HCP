@@ -146,6 +146,15 @@ func NewAdminAPI(
 		hcpMiddleware.HandlerFunc(errorutils.ReportError(hcp.NewHCPGetOnDemandBackupsHandler(resourcesDBClient, kubeApplierDBClients).ServeHTTP)),
 	)
 
+	middlewareMux.Handle(
+		middleware.V1HCPResourcePattern("POST", "/restore"),
+		hcpMiddleware.HandlerFunc(errorutils.ReportError(hcp.NewPostRestoreHandler(resourcesDBClient).ServeHTTP)),
+	)
+	middlewareMux.Handle(
+		middleware.V1HCPResourcePattern("GET", "/restore"),
+		hcpMiddleware.HandlerFunc(errorutils.ReportError(hcp.NewGetRestoreStatusHandler(resourcesDBClient, kubeApplierDBClients).ServeHTTP)),
+	)
+
 	// Fleet version management routes
 	middlewareMux.Handle("POST /admin/v1/versionrollouts/{channel}/controlplaneversionpin",
 		errorutils.ReportError(hcp.NewFleetControlPlaneVersionPinHandler(resourcesDBClient).ServeHTTP))

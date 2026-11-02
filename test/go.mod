@@ -70,6 +70,7 @@ require (
 )
 
 require (
+	github.com/Azure/ARO-HCP/hcp-recovery v0.0.0-00010101000000-000000000000 // indirect
 	github.com/Azure/ARO-Tools/tools/stackctl v0.0.0-20261119152653-bc31149d518c // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armdeployments v1.0.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armdeploymentstacks/v2 v2.0.0 // indirect
@@ -416,6 +417,8 @@ replace github.com/Azure/ARO-HCP/tooling/cleanup-sweeper => ../tooling/cleanup-s
 replace github.com/Azure/ARO-HCP/admin/server => ../admin/server
 
 replace github.com/Azure/ARO-HCP/backend => ../backend
+
+replace github.com/Azure/ARO-HCP/hcp-recovery => ../hcp-recovery
 
 replace github.com/Azure/ARO-HCP/internal => ../internal
 

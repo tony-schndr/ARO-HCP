@@ -33,6 +33,7 @@ import (
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 
 	"github.com/Azure/ARO-HCP/internal/api/metadataapi"
+	"github.com/Azure/ARO-HCP/test/util/framework"
 )
 
 // shortImageDigest keeps release-image references readable while preserving enough of the digest
@@ -269,4 +270,118 @@ func (v verifyKubeAPIServerServerVersionUpgraded) Verify(ctx context.Context, ad
 // preUpgrade is the kubernetes discovery ServerVersion (/version) read from the cluster before upgrading.
 func VerifyKubeAPIServerServerVersionUpgraded(preUpgrade *version.Info) HostedClusterVerifier {
 	return verifyKubeAPIServerServerVersionUpgraded{preUpgrade: preUpgrade}
+}
+
+type verifyHostedControlPlaneVersionCompleted struct {
+	targetVersion string
+}
+
+func (v verifyHostedControlPlaneVersionCompleted) Name() string {
+	return fmt.Sprintf("VerifyHostedControlPlaneVersionCompleted(target=%s)", v.targetVersion)
+}
+
+func (v verifyHostedControlPlaneVersionCompleted) Verify(ctx context.Context, adminRESTConfig *rest.Config) error {
+	configClient, err := configv1client.NewForConfig(adminRESTConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create config client: %w", err)
+	}
+
+	clusterVersion, err := configClient.ClusterVersions().Get(ctx, "version", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get clusterversion %q: %w", "version", err)
+	}
+
+	target, err := semver.ParseTolerant(v.targetVersion)
+	if err != nil {
+		return fmt.Errorf("parse target version %q: %w", v.targetVersion, err)
+	}
+	desired, err := semver.ParseTolerant(clusterVersion.Status.Desired.Version)
+	if err != nil {
+		return fmt.Errorf("parse clusterversion status.desired.version %q: %w", clusterVersion.Status.Desired.Version, err)
+	}
+	if desired.Major != target.Major || desired.Minor != target.Minor {
+		return fmt.Errorf("clusterversion status.desired.version %q is not in the target %d.%d line",
+			clusterVersion.Status.Desired.Version, target.Major, target.Minor)
+	}
+
+	entry, err := framework.LatestClusterVersionHistoryEntryForMinor(clusterVersion.Status.History, v.targetVersion)
+	if err != nil {
+		return err
+	}
+	if entry == nil {
+		return fmt.Errorf("clusterversion status.history has no entry in the %d.%d line: %v",
+			target.Major, target.Minor, framework.SummarizeClusterVersionHistory(clusterVersion.Status.History))
+	}
+	if entry.State != configv1.CompletedUpdate {
+		return fmt.Errorf("clusterversion history entry for %q is %q, expected %q", entry.Version, entry.State, configv1.CompletedUpdate)
+	}
+
+	// Desired and Completed on their own only say the CVO reached the payload. A control plane
+	// still rolling operators out reports Progressing=True, and callers waiting on an upgrade
+	// want the settled cluster, not the moment the payload was accepted.
+	for _, condition := range clusterVersion.Status.Conditions {
+		if condition.Type != configv1.OperatorProgressing {
+			continue
+		}
+		if condition.Status != configv1.ConditionFalse {
+			return fmt.Errorf("clusterversion Progressing is %s, expected False: %s", condition.Status, condition.Message)
+		}
+	}
+
+	return nil
+}
+
+// VerifyHostedControlPlaneVersionCompleted returns a verifier that the hosted control plane has
+// settled on targetVersion: clusterversion status.desired.version is in targetVersion's
+// major.minor line, the newest history entry for that line is Completed, and the Progressing
+// condition is False. Only major.minor is compared, so an exact nightly tag still matches the
+// build the cluster landed on.
+func VerifyHostedControlPlaneVersionCompleted(targetVersion string) HostedClusterVerifier {
+	return verifyHostedControlPlaneVersionCompleted{targetVersion: targetVersion}
+}
+
+type verifyHostedControlPlaneUpgradeStartedAfter struct {
+	targetVersion string
+	notBefore     time.Time
+}
+
+func (v verifyHostedControlPlaneUpgradeStartedAfter) Name() string {
+	return fmt.Sprintf("VerifyHostedControlPlaneUpgradeStartedAfter(target=%s, notBefore=%s)", v.targetVersion, v.notBefore.Format(time.RFC3339))
+}
+
+func (v verifyHostedControlPlaneUpgradeStartedAfter) Verify(ctx context.Context, adminRESTConfig *rest.Config) error {
+	configClient, err := configv1client.NewForConfig(adminRESTConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create config client: %w", err)
+	}
+
+	clusterVersion, err := configClient.ClusterVersions().Get(ctx, "version", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get clusterversion %q: %w", "version", err)
+	}
+
+	entry, err := framework.LatestClusterVersionHistoryEntryForMinor(clusterVersion.Status.History, v.targetVersion)
+	if err != nil {
+		return err
+	}
+	if entry == nil {
+		return fmt.Errorf("clusterversion status.history has no entry for %q: %v",
+			v.targetVersion, framework.SummarizeClusterVersionHistory(clusterVersion.Status.History))
+	}
+	if !entry.StartedTime.After(v.notBefore) {
+		return fmt.Errorf("clusterversion history entry for %q started at %s, which is not after %s; the upgrade was not started again",
+			entry.Version, entry.StartedTime.Format(time.RFC3339), v.notBefore.Format(time.RFC3339))
+	}
+
+	ginkgo.GinkgoLogr.Info("clusterversion upgrade was started again",
+		"version", entry.Version, "startedTime", entry.StartedTime.Format(time.RFC3339), "notBefore", v.notBefore.Format(time.RFC3339))
+	return nil
+}
+
+// VerifyHostedControlPlaneUpgradeStartedAfter returns a verifier that the newest clusterversion
+// status.history entry in targetVersion's major.minor line was started strictly after notBefore.
+// An entry that predates notBefore means the upgrade recorded before notBefore is still the one in
+// the history, so no new attempt was made.
+func VerifyHostedControlPlaneUpgradeStartedAfter(targetVersion string, notBefore time.Time) HostedClusterVerifier {
+	return verifyHostedControlPlaneUpgradeStartedAfter{targetVersion: targetVersion, notBefore: notBefore}
 }

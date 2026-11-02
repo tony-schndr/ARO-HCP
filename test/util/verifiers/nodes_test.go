@@ -15,14 +15,24 @@
 package verifiers
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/blang/semver/v4"
+	"github.com/stretchr/testify/require"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
 	"k8s.io/utils/set"
+
+	hypershiftv1beta1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 )
 
 func TestNodeVersionInMinor(t *testing.T) {
@@ -266,6 +276,104 @@ func TestExtractNodePoolName(t *testing.T) {
 			got := extractNodePoolName(tt.nodePoolLabel)
 			if got != tt.want {
 				t.Errorf("extractNodePoolName(%q) = %q, want %q", tt.nodePoolLabel, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestVerifyNodePoolConverged(t *testing.T) {
+	tests := []struct {
+		name        string
+		count       int
+		expected    int
+		mutate      func(*corev1.NodeList)
+		wantMessage string
+	}{
+		{name: "two nodes before backup", count: 2, expected: 2},
+		{name: "three reconciled nodes", count: 3, expected: 3},
+		{name: "only backup nodes returned", count: 2, expected: 3, wantMessage: "found 2 total and 2 matching"},
+		{name: "removed third node restored", count: 3, expected: 2, wantMessage: "found 3 total and 3 matching"},
+		{
+			name: "stale extra node", count: 4, expected: 3,
+			mutate: func(nodes *corev1.NodeList) {
+				nodes.Items[3].Status.Conditions[0].Status = corev1.ConditionFalse
+			},
+			wantMessage: "found 4 total and 4 matching",
+		},
+		{
+			name: "node in another pool", count: 3, expected: 3,
+			mutate: func(nodes *corev1.NodeList) {
+				nodes.Items[2].Labels[hypershiftv1beta1.NodePoolLabel] = "recovery-cluster-np-2"
+			},
+			wantMessage: "found 3 total and 2 matching",
+		},
+		{
+			name: "missing node pool label", count: 3, expected: 3,
+			mutate: func(nodes *corev1.NodeList) {
+				nodes.Items[2].Labels = nil
+			},
+			wantMessage: "found 3 total and 2 matching",
+		},
+		{
+			name: "node not ready", count: 3, expected: 3,
+			mutate: func(nodes *corev1.NodeList) {
+				nodes.Items[2].Status.Conditions[0].Status = corev1.ConditionFalse
+			},
+			wantMessage: "worker-2 (status=False",
+		},
+		{
+			name: "cordoned node", count: 3, expected: 3,
+			mutate: func(nodes *corev1.NodeList) {
+				nodes.Items[2].Spec.Unschedulable = true
+			},
+			wantMessage: "unschedulable=true",
+		},
+		{
+			name: "terminating node", count: 3, expected: 3,
+			mutate: func(nodes *corev1.NodeList) {
+				now := metav1.Now()
+				nodes.Items[2].DeletionTimestamp = &now
+			},
+			wantMessage: "terminating=true",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nodes := corev1.NodeList{}
+			for i := range tt.count {
+				nodes.Items = append(nodes.Items, corev1.Node{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:   fmt.Sprintf("worker-%d", i),
+						Labels: map[string]string{hypershiftv1beta1.NodePoolLabel: "recovery-cluster-np-1"},
+					},
+					Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{
+						{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+					}},
+				})
+			}
+			if tt.mutate != nil {
+				tt.mutate(&nodes)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if request.URL.Path != "/api/v1/nodes" {
+					http.NotFound(writer, request)
+					return
+				}
+				writer.Header().Set("Content-Type", "application/json")
+				if err := json.NewEncoder(writer).Encode(nodes); err != nil {
+					t.Errorf("failed to encode nodes: %v", err)
+				}
+			}))
+			defer server.Close()
+
+			err := VerifyNodePoolConverged("np-1", tt.expected, 100*time.Millisecond).
+				Verify(context.Background(), &rest.Config{Host: server.URL})
+			if tt.wantMessage == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tt.wantMessage)
+				require.ErrorContains(t, err, fmt.Sprintf("expected=%d", tt.expected))
+				require.ErrorContains(t, err, "np-1")
 			}
 		})
 	}

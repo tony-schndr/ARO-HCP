@@ -103,6 +103,92 @@ func (v verifyAllClusterOperatorsAvailableImpl) Verify(ctx context.Context, admi
 	return errors.Join(verifyErr, lastErr)
 }
 
+type verifyAllClusterOperatorsAtClusterVersionImpl struct{}
+
+func (v verifyAllClusterOperatorsAtClusterVersionImpl) Name() string {
+	return "VerifyAllClusterOperatorsAtClusterVersion"
+}
+
+// Verify reports whether every ClusterOperator has converged on the version the CVO is driving.
+//
+// ClusterVersion reaching Completed is not the same as the cluster having finished the upgrade:
+// the CVO can record the payload as applied while individual operators are still rolling their
+// operands out, which is visible as an operator that still reports the old version with
+// Progressing=True (`oc get co` VERSION column). Waiting on this verifier waits for that churn
+// to drain.
+func (v verifyAllClusterOperatorsAtClusterVersionImpl) Verify(ctx context.Context, adminRESTConfig *rest.Config) error {
+	configClient, err := configv1client.NewForConfig(adminRESTConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create config client: %w", err)
+	}
+
+	clusterVersion, err := configClient.ClusterVersions().Get(ctx, "version", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get clusterversion %q: %w", "version", err)
+	}
+	desiredVersion := clusterVersion.Status.Desired.Version
+	if len(desiredVersion) == 0 {
+		return errors.New("clusterversion status.desired.version is empty")
+	}
+
+	clusterOperators, err := configClient.ClusterOperators().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list ClusterOperators: %w", err)
+	}
+	if len(clusterOperators.Items) == 0 {
+		return errors.New("no ClusterOperators found in the cluster")
+	}
+
+	var unsettled []string
+	for _, co := range clusterOperators.Items {
+		// The "operator" entry is the operator's own version, the one `oc get co` prints in
+		// the VERSION column; the other entries are operand versions.
+		operatorVersion, found := clusterOperatorVersion(co.Status.Versions, "operator")
+		switch {
+		case !found:
+			unsettled = append(unsettled, fmt.Sprintf("%s (no %q version reported, want %s)", co.Name, "operator", desiredVersion))
+			continue
+		case operatorVersion != desiredVersion:
+			unsettled = append(unsettled, fmt.Sprintf("%s (version %s, want %s)", co.Name, operatorVersion, desiredVersion))
+			continue
+		}
+
+		if condition := getClusterOperatorCondition(co.Status.Conditions, configv1.OperatorAvailable); condition == nil || condition.Status != configv1.ConditionTrue {
+			unsettled = append(unsettled, fmt.Sprintf("%s (Available!=True: %s)", co.Name, formatConditions(co.Status.Conditions)))
+			continue
+		}
+		if condition := getClusterOperatorCondition(co.Status.Conditions, configv1.OperatorProgressing); condition != nil && condition.Status != configv1.ConditionFalse {
+			unsettled = append(unsettled, fmt.Sprintf("%s (Progressing=%s: %s)", co.Name, condition.Status, condition.Message))
+		}
+	}
+
+	if len(unsettled) > 0 {
+		slices.Sort(unsettled)
+		return fmt.Errorf("cluster operators have not settled on %s: %s", desiredVersion, strings.Join(unsettled, ", "))
+	}
+
+	ginkgo.GinkgoLogr.Info("All cluster operators settled on the cluster version",
+		"version", desiredVersion, "count", len(clusterOperators.Items))
+	return nil
+}
+
+// VerifyAllClusterOperatorsAtClusterVersion returns a verifier that every ClusterOperator reports
+// the ClusterVersion status.desired.version as its own "operator" version, is Available=True, and
+// is no longer Progressing. Use it to wait out the operator rollout that continues after
+// ClusterVersion itself reports the update Completed.
+func VerifyAllClusterOperatorsAtClusterVersion() HostedClusterVerifier {
+	return verifyAllClusterOperatorsAtClusterVersionImpl{}
+}
+
+func clusterOperatorVersion(versions []configv1.OperandVersion, name string) (string, bool) {
+	for _, version := range versions {
+		if version.Name == name {
+			return version.Version, true
+		}
+	}
+	return "", false
+}
+
 func getClusterOperatorCondition(conditions []configv1.ClusterOperatorStatusCondition, conditionType configv1.ClusterStatusConditionType) *configv1.ClusterOperatorStatusCondition {
 	for i := range conditions {
 		if conditions[i].Type == conditionType {

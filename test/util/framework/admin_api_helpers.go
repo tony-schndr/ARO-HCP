@@ -29,6 +29,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/go-cmp/cmp"
 
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -38,10 +39,53 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v5"
 
+	"github.com/Azure/ARO-HCP/admin/server/handlers/hcp"
 	"github.com/Azure/ARO-HCP/admin/server/handlers/stamp"
 	"github.com/Azure/ARO-HCP/internal/api/fleetapi"
 	"github.com/Azure/ARO-HCP/test/util/config"
 )
+
+// WaitForOnDemandBackupCompleted waits for the named backup, failing early on a terminal backup failure.
+func WaitForOnDemandBackupCompleted(ctx context.Context, httpClient *http.Client, adminAPIAddress, resourceID, backupName string) (hcp.OnDemandBackupDetail, error) {
+	var completed hcp.OnDemandBackupDetail
+	var lastObservation string
+	err := wait.PollUntilContextTimeout(ctx, BackupWaitInterval, BackupWaitTimeout, true, func(ctx context.Context) (bool, error) {
+		resp, err := DoAdminAPIRequest[hcp.OnDemandBackupResponse](ctx, httpClient, http.MethodGet,
+			fmt.Sprintf("%s/admin/v1/hcp%s/backups", adminAPIAddress, resourceID), http.StatusOK, nil)
+		found := false
+		observation := "not yet observed"
+		if err != nil {
+			observation = fmt.Sprintf("lookup failed: %v", err)
+		} else {
+			for _, b := range resp.Backups {
+				if b.Name != backupName {
+					continue
+				}
+				completed = b
+				found = true
+				observation = fmt.Sprintf("phase %q", b.Phase)
+				break
+			}
+		}
+		if observation != lastObservation {
+			GinkgoLogr.Info("waiting for backup to complete", "backup", backupName,
+				"observed", observation, "expectedPhase", "Completed")
+			lastObservation = observation
+		}
+		if !found {
+			return false, nil
+		}
+		switch completed.Phase {
+		case "Failed", "PartiallyFailed", "FailedValidation":
+			return false, fmt.Errorf("backup %s ended in %s; expected Completed", backupName, completed.Phase)
+		}
+		return completed.Phase == "Completed", nil
+	})
+	if err != nil {
+		return hcp.OnDemandBackupDetail{}, fmt.Errorf("waiting for backup %s to complete (last observed: %s): %w", backupName, lastObservation, err)
+	}
+	return completed, nil
+}
 
 const (
 	// clientPrincipalNameHeader is the header Geneva Actions sets to identify the calling principal.

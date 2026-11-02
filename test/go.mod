@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/Azure/ARO-HCP/admin/server v0.0.0-00010101000000-000000000000
 	github.com/Azure/ARO-HCP/backend v0.0.0-20260513195720-7c0637c01c58
+	github.com/Azure/ARO-HCP/hcp-recovery v0.0.0-00010101000000-000000000000
 	github.com/Azure/ARO-HCP/internal v0.0.0-00010101000000-000000000000
 	github.com/Azure/ARO-HCP/test/sdk/v20240610preview/resourcemanager/redhatopenshifthcp/armredhatopenshifthcp v0.0.0-20260924132945-9a648fc2428f
 	github.com/Azure/ARO-HCP/test/sdk/v20251223preview/resourcemanager/redhatopenshifthcp/armredhatopenshifthcp v0.0.0-00010101000000-000000000000
@@ -70,7 +71,6 @@ require (
 )
 
 require (
-	github.com/Azure/ARO-HCP/hcp-recovery v0.0.0-00010101000000-000000000000 // indirect
 	github.com/Azure/ARO-Tools/tools/stackctl v0.0.0-20261119152653-bc31149d518c // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armdeployments v1.0.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armdeploymentstacks/v2 v2.0.0 // indirect

@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/blang/semver/v4"
 
@@ -282,6 +283,60 @@ func VerifyNodePoolReadyAndSchedulableNodeCount(nodePoolName string, expected in
 		nodePoolName: nodePoolName,
 		expected:     expected,
 	}
+}
+
+type verifyNodePoolConverged struct {
+	nodePoolName string
+	expected     int
+	timeout      time.Duration
+}
+
+func (v verifyNodePoolConverged) Name() string {
+	return fmt.Sprintf("VerifyNodePoolConverged(nodePool=%s, expected=%d)", v.nodePoolName, v.expected)
+}
+
+func (v verifyNodePoolConverged) Verify(ctx context.Context, adminRESTConfig *rest.Config) error {
+	kubeClient, err := kubernetes.NewForConfig(adminRESTConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	return pollUntilReady(ctx, v.Name(), v.timeout, DefaultPollInterval, adminRESTConfig, 0, nil, func(ctx context.Context) error {
+		nodes, err := kubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("can't list nodes in the cluster: %w", err)
+		}
+		matchingNodes, err := framework.SelectNodesBelongingToNodePool(nodes.Items, v.nodePoolName)
+		if err != nil {
+			return fmt.Errorf("failed to select nodes for node pool %q: %w", v.nodePoolName, err)
+		}
+
+		// Check the total as well as the ready count so stale, cordoned, or
+		// terminating nodes cannot hide alongside the expected healthy nodes.
+		if len(nodes.Items) != v.expected || len(matchingNodes) != v.expected {
+			return fmt.Errorf("expected exactly %d nodes, all in node pool %q; found %d total and %d matching; nodes per pool: %s",
+				v.expected, v.nodePoolName, len(nodes.Items), len(matchingNodes), formatNodesByPool(nodes.Items))
+		}
+		var unhealthyNodes []string
+		for i := range matchingNodes {
+			node := &matchingNodes[i]
+			if !nodeReadyAndSchedulable(node) || node.DeletionTimestamp != nil {
+				unhealthyNodes = append(unhealthyNodes, fmt.Sprintf("%s (unschedulable=%t, terminating=%t)",
+					nodeReadyConditionSummary(node), node.Spec.Unschedulable, node.DeletionTimestamp != nil))
+			}
+		}
+		if len(unhealthyNodes) > 0 {
+			return fmt.Errorf("expected all %d nodes in node pool %q to be ready, schedulable and non-terminating; unhealthy nodes: %s",
+				v.expected, v.nodePoolName, strings.Join(unhealthyNodes, ", "))
+		}
+		return nil
+	})
+}
+
+// VerifyNodePoolConverged waits for exactly the expected nodes in a single pool,
+// all ready, schedulable and non-terminating, with no extra nodes in the cluster.
+func VerifyNodePoolConverged(nodePoolName string, expected int, timeout time.Duration) HostedClusterVerifier {
+	return verifyNodePoolConverged{nodePoolName: nodePoolName, expected: expected, timeout: timeout}
 }
 
 type verifyNodePoolUpgrade struct {

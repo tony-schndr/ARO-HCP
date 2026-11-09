@@ -145,6 +145,10 @@ func NewAdminAPI(
 		middleware.V1HCPResourcePattern("GET", "/backups"),
 		hcpMiddleware.HandlerFunc(errorutils.ReportError(hcp.NewHCPGetOnDemandBackupsHandler(resourcesDBClient, kubeApplierDBClients).ServeHTTP)),
 	)
+	middlewareMux.Handle(
+		middleware.V1HCPResourcePattern("POST", "/backups"),
+		hcpMiddleware.HandlerFunc(errorutils.ReportError(hcp.NewHCPPostOnDemandBackupHandler(resourcesDBClient, kubeApplierDBClients).ServeHTTP)),
+	)
 
 	middlewareMux.Handle(
 		middleware.V1HCPResourcePattern("POST", "/restore"),

@@ -15,24 +15,18 @@ package backups
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 
-	"k8s.io/apimachinery/pkg/runtime"
-
 	azcorearm "github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
-
-	hyperv1beta1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 
 	"github.com/Azure/ARO-HCP/backend/pkg/kubeapplierhelpers"
 	"github.com/Azure/ARO-HCP/backend/pkg/utils/controllerutils"
 	"github.com/Azure/ARO-HCP/internal/api/coreapi"
 	"github.com/Azure/ARO-HCP/internal/api/kubeapplierapi"
-	"github.com/Azure/ARO-HCP/internal/apihelpers/kubeapplierapihelpers"
 	"github.com/Azure/ARO-HCP/internal/backup"
 	"github.com/Azure/ARO-HCP/internal/database/cosmosstorage/corecosmosstorage"
 	"github.com/Azure/ARO-HCP/internal/database/cosmosstorage/cosmosstorageutils"
@@ -46,28 +40,11 @@ import (
 
 const keyRotationBackupNameSeparator = "-keyrotation-"
 
-// rotationComplete returns true only when KMS key rotation has fully completed and the
-// cluster is safe to snapshot. The HostedClusterConfigOperator derives the rotation phase
-// from the live SecretEncryption state and clears TargetKey once the final rotation update
-// has completed; History[0].State is recorded for observability, not as an input to the
-// decision. We therefore require both TargetKey=="" and History[0].State==Completed as
-// a conservative fail-safe: if those fields are ever patched separately, we skip the
-// backup instead of snapshotting mid-rotation. This also covers an existing AESCBC
-// cluster's spec-driven migration to KMS after the first KMS key is active; clusters
-// created directly with KMS never populate History and therefore never trigger this path.
-// This function does not deduplicate: SyncOnce gates actual backup creation on
-// Status.KeyRotationBackupFingerprint, so a completed backup for the active key
-// is never recreated.
-func rotationComplete(hc *hyperv1beta1.HostedCluster) bool {
-	status := hc.Status.SecretEncryption
-	if len(status.History) == 0 {
-		return false
-	}
-	return status.TargetKey.Azure.KeyVersion == "" &&
-		status.History[0].State == hyperv1beta1.EncryptionMigrationStateCompleted
-}
-
-const KeyRotationBackupControllerName = "KeyRotationBackup"
+// KeyRotationBackupControllerName names the controller that takes a backup after
+// a KMS key rotation. The value is shared with the admin API, which must be able
+// to tell this flow's desires from its own; see internal/backup for why it lives
+// there.
+const KeyRotationBackupControllerName = backup.KeyRotationBackupControllerName
 
 type keyRotationBackupSyncer struct {
 	cosmosClient                 corecosmosstorage.ResourcesDBClient
@@ -300,6 +277,10 @@ func (c *keyRotationBackupSyncer) SyncOnce(ctx context.Context, key controllerut
 // check, so setting Type=Delete could race a running Velero backup. Direct purging
 // leaves the Backup CR and its data intact for Velero cleanup; mgmt-agent may
 // request deletion before TTL expiry after the HostedCluster disappears.
+//
+// Admin-requested backups carry the same tag and name prefix but a different owner,
+// and the OnDemandBackup controller tears those down; OwnsBackupDesire keeps this
+// sweep off them.
 func (c *keyRotationBackupSyncer) syncDeletion(
 	ctx context.Context,
 	key controllerutils.HCPClusterKey,
@@ -330,7 +311,7 @@ func (c *keyRotationBackupSyncer) syncDeletion(
 		return err
 	}
 	for _, applyDesire := range applyDesires {
-		if _, ok := applyDesire.Tags[backup.DesireTagKeyOndemandBackup]; !ok {
+		if !backup.OwnsBackupDesire(applyDesire.Tags, KeyRotationBackupControllerName) {
 			continue
 		}
 		logger.Info("purging on-demand backup ApplyDesire for deleted cluster", "desire", applyDesire.ResourceID.Name)
@@ -344,7 +325,7 @@ func (c *keyRotationBackupSyncer) syncDeletion(
 		return utils.TrackError(fmt.Errorf("failed to list ReadDesires: %w", err))
 	}
 	for _, readDesire := range readDesires {
-		if _, ok := readDesire.Tags[backup.DesireTagKeyOndemandBackup]; !ok {
+		if !backup.OwnsBackupDesire(readDesire.Tags, KeyRotationBackupControllerName) {
 			continue
 		}
 		name := readDesire.ResourceID.Name
@@ -357,20 +338,8 @@ func (c *keyRotationBackupSyncer) syncDeletion(
 	return nil
 }
 
-// observedVeleroBackupPhase returns the phase of the Backup observed by kube-applier.
-func observedVeleroBackupPhase(kubeContent *runtime.RawExtension) (velerov1.BackupPhase, error) {
-	if kubeContent == nil || kubeContent.Raw == nil {
-		// Successful=True only confirms kube-applier is alive, not that it observed a Backup.
-		return "", nil
-	}
-	var veleroBackup velerov1.Backup
-	if err := json.Unmarshal(kubeContent.Raw, &veleroBackup); err != nil {
-		return "", fmt.Errorf("failed to unmarshal observed Backup: %w", err)
-	}
-	return veleroBackup.Status.Phase, nil
-}
-
-// purgeCompletedOnDemandApplyDesires retires superseded or completed on-demand desires.
+// purgeCompletedOnDemandApplyDesires retires superseded or completed on-demand desires
+// owned by this controller. Admin-requested backups share the tag and are skipped.
 func (c *keyRotationBackupSyncer) purgeCompletedOnDemandApplyDesires(
 	ctx context.Context,
 	key controllerutils.HCPClusterKey,
@@ -386,7 +355,7 @@ func (c *keyRotationBackupSyncer) purgeCompletedOnDemandApplyDesires(
 		return false, err
 	}
 	for _, applyDesire := range applyDesires {
-		if _, ok := applyDesire.Tags[backup.DesireTagKeyOndemandBackup]; !ok {
+		if !backup.OwnsBackupDesire(applyDesire.Tags, KeyRotationBackupControllerName) {
 			continue
 		}
 
@@ -461,8 +430,9 @@ func (c *keyRotationBackupSyncer) recordKeyRotationBackupFingerprint(
 	return true, nil
 }
 
-// deleteStaleOnDemandReadDesires removes on-demand key-rotation ReadDesires after
-// their Velero Backups have been garbage-collected.
+// deleteStaleOnDemandReadDesires removes this controller's on-demand key-rotation
+// ReadDesires after their Velero Backups have been garbage-collected.
+// Admin-requested backups share the tag and are skipped.
 func (c *keyRotationBackupSyncer) deleteStaleOnDemandReadDesires(
 	ctx context.Context,
 	key controllerutils.HCPClusterKey,
@@ -478,7 +448,7 @@ func (c *keyRotationBackupSyncer) deleteStaleOnDemandReadDesires(
 		return false, utils.TrackError(fmt.Errorf("failed to list ReadDesires: %w", err))
 	}
 	for _, readDesire := range readDesires {
-		if _, ok := readDesire.Tags[backup.DesireTagKeyOndemandBackup]; !ok {
+		if !backup.OwnsBackupDesire(readDesire.Tags, KeyRotationBackupControllerName) {
 			continue
 		}
 
@@ -515,51 +485,10 @@ func keyRotationBackupName(hostedClusterNamespace, kmsKeyFingerprint string) str
 	return hostedClusterNamespace + keyRotationBackupNameSeparator + kmsKeyFingerprint
 }
 
-func keyRotationDesireName(backupName string) string {
-	return backup.OndemandBackupDesireNamePrefix + backupName
-}
-
 func buildOnDemandBackupApplyDesire(
 	subscriptionID, resourceGroupName, clusterName string,
 	managementClusterResourceID *azcorearm.ResourceID,
 	veleroBackup *velerov1.Backup,
 ) (*kubeapplierapi.ApplyDesire, error) {
-	desireName := keyRotationDesireName(veleroBackup.Name)
-	resourceIDStr := kubeapplierapihelpers.ToClusterScopedApplyDesireResourceIDString(
-		subscriptionID, resourceGroupName, clusterName, desireName,
-	)
-	resourceID, err := azcorearm.ParseResourceID(resourceIDStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse ApplyDesire resource ID for backup %s: %w", veleroBackup.Name, err)
-	}
-
-	raw, err := json.Marshal(veleroBackup)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal backup %s: %w", veleroBackup.Name, err)
-	}
-
-	return &kubeapplierapi.ApplyDesire{
-		CosmosMetadata: coreapi.CosmosMetadata{
-			ResourceID:   resourceID,
-			PartitionKey: strings.ToLower(managementClusterResourceID.String()),
-		},
-		Spec: kubeapplierapi.ApplyDesireSpec{
-			ManagementCluster: managementClusterResourceID,
-			Type:              kubeapplierapi.ApplyDesireTypeServerSideApply,
-			TargetItem: kubeapplierapi.ResourceReference{
-				Group:     backup.VeleroGroup,
-				Version:   backup.VeleroVersion,
-				Resource:  backup.VeleroBackupResource,
-				Namespace: backup.VeleroNamespace,
-				Name:      veleroBackup.Name,
-			},
-			ServerSideApply: &kubeapplierapi.ServerSideApplyConfig{
-				KubeContent: &runtime.RawExtension{Raw: raw},
-			},
-		},
-		Tags: map[string]string{
-			backup.DesireTagKeyOndemandBackup: "",
-			kubeapplierapi.TagControllerName:  KeyRotationBackupControllerName,
-		},
-	}, nil
+	return backup.BuildBackupApplyDesire(subscriptionID, resourceGroupName, clusterName, managementClusterResourceID, veleroBackup, KeyRotationBackupControllerName)
 }

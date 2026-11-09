@@ -405,6 +405,52 @@ func TestKeyRotationBackupSyncer_SyncOnce(t *testing.T) {
 		return seedOnDemandDesireObserved(t, ctx, mockKubeApplier, backupName, fingerprint, velerov1.BackupPhaseCompleted, true)
 	}
 
+	// seedAdminOnDemandDesire creates the desire pair the admin API would have
+	// written for an operator-requested backup: same tag, same name prefix, same
+	// shape as a key-rotation pair — only the owner differs. It is seeded in the
+	// state that most tempts this controller to reap it: the Backup completed
+	// and Velero has since GC'd it (no KubeContent, successful read).
+	adminBackupName := "backup-operator-requested"
+	adminDesireName := backup.OndemandBackupDesireName(adminBackupName)
+	seedAdminOnDemandDesire := func(t *testing.T, ctx context.Context, mockKubeApplier *kubeappliercosmosstoragetesting.MockKubeApplierDBClient) {
+		t.Helper()
+		veleroBackup := backup.NewBackup(adminBackupName, "resource-id", "", hostedClusterNamespace, controlPlaneNamespace, backup.OnDemandBackupTTL)
+		ad, err := backup.BuildBackupApplyDesire(
+			testKey.SubscriptionID, testKey.ResourceGroupName, testKey.HCPClusterName,
+			testMgmtClusterResourceID(), veleroBackup, backup.OnDemandBackupControllerName,
+		)
+		require.NoError(t, err)
+		applyDesireCRUD, err := mockKubeApplier.ApplyDesiresForCluster(testKey.SubscriptionID, testKey.ResourceGroupName, testKey.HCPClusterName)
+		require.NoError(t, err)
+		_, err = applyDesireCRUD.Create(ctx, ad, nil)
+		require.NoError(t, err)
+
+		rd, err := backup.BuildReadDesireFromApplyDesire(testKey.SubscriptionID, testKey.ResourceGroupName, testKey.HCPClusterName, ad)
+		require.NoError(t, err)
+		rd.Status.Conditions = []metav1.Condition{
+			{Type: kubeapplierapi.ConditionTypeSuccessful, Status: metav1.ConditionTrue},
+		}
+		readDesireCRUD, err := mockKubeApplier.ReadDesiresForCluster(testKey.SubscriptionID, testKey.ResourceGroupName, testKey.HCPClusterName)
+		require.NoError(t, err)
+		_, err = readDesireCRUD.Create(ctx, rd, nil)
+		require.NoError(t, err)
+	}
+
+	// verifyAdminOnDemandDesiresSurvive asserts this controller left the
+	// admin-owned pair for the OnDemandBackup controller to reap.
+	verifyAdminOnDemandDesiresSurvive := func(t *testing.T, ctx context.Context, mockKubeApplier *kubeappliercosmosstoragetesting.MockKubeApplierDBClient) {
+		t.Helper()
+		applyDesireCRUD, err := mockKubeApplier.ApplyDesiresForCluster(testKey.SubscriptionID, testKey.ResourceGroupName, testKey.HCPClusterName)
+		require.NoError(t, err)
+		_, err = applyDesireCRUD.Get(ctx, adminDesireName)
+		assert.NoError(t, err, "admin-requested ApplyDesire belongs to the OnDemandBackup controller and must survive this controller's sweep")
+
+		readDesireCRUD, err := mockKubeApplier.ReadDesiresForCluster(testKey.SubscriptionID, testKey.ResourceGroupName, testKey.HCPClusterName)
+		require.NoError(t, err)
+		_, err = readDesireCRUD.Get(ctx, adminDesireName)
+		assert.NoError(t, err, "admin-requested ReadDesire belongs to the OnDemandBackup controller and must survive this controller's sweep")
+	}
+
 	newTestCluster := func(opts ...func(*coreapi.Cluster)) *coreapi.Cluster {
 		resourceID := metadataapi.Must(azcorearm.ParseResourceID(
 			"/subscriptions/" + testKey.SubscriptionID +
@@ -523,8 +569,8 @@ func TestKeyRotationBackupSyncer_SyncOnce(t *testing.T) {
 				assert.Equal(t, kubeapplierapi.ApplyDesireTypeServerSideApply, ad.Spec.Type)
 				assert.Equal(t, backup.VeleroBackupResource, ad.Spec.TargetItem.Resource)
 				assert.Equal(t, expectedBackupName, ad.Spec.TargetItem.Name)
-				assert.Contains(t, ad.Tags, backup.DesireTagKeyOndemandBackup, "on-demand backup ApplyDesire must carry the on-demand tag")
-				assert.Equal(t, KeyRotationBackupControllerName, ad.Tags[kubeapplierapi.TagControllerName], "on-demand backup ApplyDesire must carry the controller-name tag required by EnsureApplyDesire")
+				assert.Contains(t, ad.Tags, backup.DesireTagKeyOndemandBackup, "on-demand backup ApplyDesire must carry the on-demand tag shared by both backup flows")
+				assert.Equal(t, KeyRotationBackupControllerName, ad.Tags[kubeapplierapi.TagControllerName], "on-demand backup ApplyDesire must record this controller as owner: it is what keeps the OnDemandBackup sweep off it, and EnsureApplyDesire requires it")
 
 				readDesireCRUD, err := mockKubeApplier.ReadDesiresForCluster(testKey.SubscriptionID, testKey.ResourceGroupName, testKey.HCPClusterName)
 				require.NoError(t, err)
@@ -625,7 +671,10 @@ func TestKeyRotationBackupSyncer_SyncOnce(t *testing.T) {
 							Name: expectedBackupName,
 						},
 					},
-					Tags: map[string]string{backup.DesireTagKeyOndemandBackup: ""},
+					Tags: map[string]string{
+						backup.DesireTagKeyOndemandBackup: "",
+						kubeapplierapi.TagControllerName:  KeyRotationBackupControllerName,
+					},
 				}
 				readDesireCRUD, err := mockKubeApplier.ReadDesiresForCluster(testKey.SubscriptionID, testKey.ResourceGroupName, testKey.HCPClusterName)
 				require.NoError(t, err)
@@ -894,7 +943,10 @@ func TestKeyRotationBackupSyncer_SyncOnce(t *testing.T) {
 							{Type: kubeapplierapi.ConditionTypeSuccessful, Status: metav1.ConditionTrue},
 						},
 					},
-					Tags: map[string]string{backup.DesireTagKeyOndemandBackup: ""},
+					Tags: map[string]string{
+						backup.DesireTagKeyOndemandBackup: "",
+						kubeapplierapi.TagControllerName:  KeyRotationBackupControllerName,
+					},
 				}
 				readDesireCRUD, err := mockKubeApplier.ReadDesiresForCluster(testKey.SubscriptionID, testKey.ResourceGroupName, testKey.HCPClusterName)
 				require.NoError(t, err)
@@ -1159,7 +1211,10 @@ func TestKeyRotationBackupSyncer_SyncOnce(t *testing.T) {
 							{Type: kubeapplierapi.ConditionTypeSuccessful, Status: metav1.ConditionTrue},
 						},
 					},
-					Tags: map[string]string{backup.DesireTagKeyOndemandBackup: ""},
+					Tags: map[string]string{
+						backup.DesireTagKeyOndemandBackup: "",
+						kubeapplierapi.TagControllerName:  KeyRotationBackupControllerName,
+					},
 				}
 				readDesireCRUD, err := mockKubeApplier.ReadDesiresForCluster(testKey.SubscriptionID, testKey.ResourceGroupName, testKey.HCPClusterName)
 				require.NoError(t, err)
@@ -1208,6 +1263,51 @@ func TestKeyRotationBackupSyncer_SyncOnce(t *testing.T) {
 				require.NoError(t, err)
 				_, err = readDesireCRUD.Get(ctx, expectedDesireName)
 				assert.True(t, cosmosstorageutils.IsNotFoundError(err), "on-demand ReadDesire should be deleted when the cluster is being deleted")
+			},
+		},
+		{
+			// Admin-requested backups are indistinguishable from this controller's
+			// own except for Tags[ControllerName]; reaping one would pull the
+			// Velero Backup out from under an operator mid-run.
+			name:             "leaves admin-requested on-demand desires to the OnDemandBackup controller",
+			clusterOpts:      []func(*coreapi.Cluster){withKMS},
+			hasPlacement:     true,
+			seedHCReadDesire: completedRotationHC,
+			seedKubeApplier: func(t *testing.T, ctx context.Context, mockKubeApplier *kubeappliercosmosstoragetesting.MockKubeApplierDBClient) {
+				t.Helper()
+				seedAdminOnDemandDesire(t, ctx, mockKubeApplier)
+			},
+			// Enough syncs to drive the rotation through create, fingerprint
+			// record and cleanup, so every sweep runs against the admin pair.
+			syncCount: 3,
+			verify: func(t *testing.T, ctx context.Context, mockDB *corecosmosstoragetesting.MockResourcesDBClient, mockKubeApplier *kubeappliercosmosstoragetesting.MockKubeApplierDBClient) {
+				t.Helper()
+				verifyAdminOnDemandDesiresSurvive(t, ctx, mockKubeApplier)
+			},
+		},
+		{
+			// Cluster teardown purges unconditionally, with no phase check to
+			// fall back on, so the owner check is the only thing protecting the
+			// admin pair here.
+			name: "cluster deletion leaves admin-requested on-demand desires alone",
+			clusterOpts: []func(*coreapi.Cluster){withKMS, func(c *coreapi.Cluster) {
+				now := metav1.Now()
+				c.ServiceProviderProperties.DeletionTimestamp = &now
+			}},
+			hasPlacement: true,
+			seedKubeApplier: func(t *testing.T, ctx context.Context, mockKubeApplier *kubeappliercosmosstoragetesting.MockKubeApplierDBClient) {
+				t.Helper()
+				seedOnDemandDesire(t, ctx, mockKubeApplier, expectedBackupName, true)
+				seedAdminOnDemandDesire(t, ctx, mockKubeApplier)
+			},
+			verify: func(t *testing.T, ctx context.Context, mockDB *corecosmosstoragetesting.MockResourcesDBClient, mockKubeApplier *kubeappliercosmosstoragetesting.MockKubeApplierDBClient) {
+				t.Helper()
+				applyDesireCRUD, err := mockKubeApplier.ApplyDesiresForCluster(testKey.SubscriptionID, testKey.ResourceGroupName, testKey.HCPClusterName)
+				require.NoError(t, err)
+				_, err = applyDesireCRUD.Get(ctx, expectedDesireName)
+				assert.True(t, cosmosstorageutils.IsNotFoundError(err), "this controller's own on-demand ApplyDesire should still be purged on cluster deletion")
+
+				verifyAdminOnDemandDesiresSurvive(t, ctx, mockKubeApplier)
 			},
 		},
 	}

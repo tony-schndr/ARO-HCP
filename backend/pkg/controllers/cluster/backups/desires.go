@@ -25,6 +25,8 @@ import (
 
 	azcorearm "github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 
+	hyperv1beta1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
+
 	"github.com/Azure/ARO-HCP/internal/api/coreapi"
 	"github.com/Azure/ARO-HCP/internal/api/kubeapplierapi"
 	"github.com/Azure/ARO-HCP/internal/apihelpers/kubeapplierapihelpers"
@@ -83,40 +85,38 @@ func buildApplyDesireFromSchedule(
 	}, nil
 }
 
+// The helpers below are thin package-local aliases for the shared
+// implementations in internal/backup. The construction and gating logic is
+// shared with the admin API, which creates admin-requested backup desires
+// directly and therefore cannot import this package.
+
 // buildReadDesireFromApplyDesire builds the cluster-scoped ReadDesire that
-// observes the same management-cluster object a backup ApplyDesire lands. It
-// reuses the ApplyDesire's name, target, management cluster, partition key, and
-// tags so the apply/read pair stays in lockstep.
+// observes the same management-cluster object a backup ApplyDesire lands.
 func buildReadDesireFromApplyDesire(
 	subscriptionID, resourceGroupName, clusterName string,
 	applyDesire *kubeapplierapi.ApplyDesire,
 ) (*kubeapplierapi.ReadDesire, error) {
-	desireName := applyDesire.ResourceID.Name
-	resourceIDStr := kubeapplierapihelpers.ToClusterScopedReadDesireResourceIDString(
-		subscriptionID, resourceGroupName, clusterName, desireName,
-	)
-	resourceID, err := azcorearm.ParseResourceID(resourceIDStr)
-	if err != nil {
-		return nil, utils.TrackError(fmt.Errorf("failed to parse ReadDesire resource ID for %s: %w", desireName, err))
-	}
-
-	return &kubeapplierapi.ReadDesire{
-		CosmosMetadata: coreapi.CosmosMetadata{ResourceID: resourceID, PartitionKey: applyDesire.PartitionKey},
-		Spec: kubeapplierapi.ReadDesireSpec{
-			ManagementCluster: applyDesire.Spec.ManagementCluster,
-			TargetItem:        applyDesire.Spec.TargetItem,
-		},
-		Tags: applyDesire.Tags,
-	}, nil
+	return backup.BuildReadDesireFromApplyDesire(subscriptionID, resourceGroupName, clusterName, applyDesire)
 }
 
 // isDesireSuccessful reports whether the given desire conditions include a
 // successful reconciliation.
 func isDesireSuccessful(conditions []metav1.Condition) bool {
-	for _, condition := range conditions {
-		if condition.Type == kubeapplierapi.ConditionTypeSuccessful && condition.Status == metav1.ConditionTrue {
-			return true
-		}
-	}
-	return false
+	return backup.IsDesireSuccessful(conditions)
+}
+
+// observedVeleroBackupPhase returns the phase of the Backup observed by kube-applier.
+func observedVeleroBackupPhase(kubeContent *runtime.RawExtension) (velerov1.BackupPhase, error) {
+	return backup.ObservedVeleroBackupPhase(kubeContent)
+}
+
+// rotationComplete reports whether KMS key rotation has fully completed and the
+// cluster is safe to snapshot.
+func rotationComplete(hostedCluster *hyperv1beta1.HostedCluster) bool {
+	return backup.RotationComplete(hostedCluster)
+}
+
+// keyRotationDesireName returns the desire name for an on-demand Velero Backup.
+func keyRotationDesireName(backupName string) string {
+	return backup.OndemandBackupDesireName(backupName)
 }

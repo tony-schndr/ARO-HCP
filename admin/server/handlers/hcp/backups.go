@@ -15,15 +15,22 @@
 package hcp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 
+	"k8s.io/apimachinery/pkg/api/meta"
+
+	hyperv1beta1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
+
 	"github.com/Azure/ARO-HCP/internal/api/coreapi"
+	"github.com/Azure/ARO-HCP/internal/api/kubeapplierapi"
 	"github.com/Azure/ARO-HCP/internal/apihelpers/coreapihelpers"
 	"github.com/Azure/ARO-HCP/internal/backup"
 	"github.com/Azure/ARO-HCP/internal/controllerutils"
@@ -245,6 +252,167 @@ type OnDemandBackupDetail struct {
 	CompletionTime    string `json:"completionTime,omitempty"`
 }
 
+// HCPPostOnDemandBackupHandler creates an on-demand Velero Backup for a cluster.
+type HCPPostOnDemandBackupHandler struct {
+	resourcesDBClient    corecosmosstorage.ResourcesDBClient
+	kubeApplierDBClients kubeappliercosmosstorage.KubeApplierDBClients
+}
+
+func NewHCPPostOnDemandBackupHandler(resourcesDBClient corecosmosstorage.ResourcesDBClient, kubeApplierDBClients kubeappliercosmosstorage.KubeApplierDBClients) *HCPPostOnDemandBackupHandler {
+	return &HCPPostOnDemandBackupHandler{
+		resourcesDBClient:    resourcesDBClient,
+		kubeApplierDBClients: kubeApplierDBClients,
+	}
+}
+
+func (h *HCPPostOnDemandBackupHandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) error {
+	ctx := request.Context()
+
+	details, err := getClusterDetails(request, h.resourcesDBClient)
+	if err != nil {
+		return utils.TrackError(err)
+	}
+	cluster, spc := details.cluster, details.serviceProviderCluster
+
+	if cluster.ServiceProviderProperties.DeletionTimestamp != nil {
+		return coreapi.NewCloudError(http.StatusConflict, coreapi.CloudErrorCodeConflict, "", "HCP cluster is being deleted")
+	}
+	// The per-cluster flag is what the backend Recovery controller sets, so
+	// block taking a backup in the middle of a recovery.
+	if spc.Spec.BackupScheduleState == coreapi.BackupScheduleStateDisabled {
+		return coreapi.NewCloudError(http.StatusConflict, coreapi.CloudErrorCodeConflict, "", "backups are paused")
+	}
+
+	if spc.Status.ManagementClusterResourceID == nil {
+		return coreapi.NewCloudError(http.StatusPreconditionFailed, coreapi.CloudErrorCodeInvalidResource, "",
+			"management cluster placement not resolved for cluster %s", cluster.ResourceID.String())
+	}
+	if spc.Status.HostedClusterNamespace == "" || spc.Status.ControlPlaneNamespace == "" {
+		return coreapi.NewCloudError(http.StatusPreconditionFailed, coreapi.CloudErrorCodeInvalidResource, "",
+			"control plane namespaces not resolved for cluster %s", cluster.ResourceID.String())
+	}
+
+	kubeApplierClient, err := h.kubeApplierDBClients.For(ctx, spc.Status.ManagementClusterResourceID)
+	if err != nil {
+		return utils.TrackError(fmt.Errorf("failed to get kube-applier client: %w", err))
+	}
+	if kubeApplierClient == nil {
+		return coreapi.NewCloudError(http.StatusPreconditionFailed, coreapi.CloudErrorCodeInvalidResource, "",
+			"kube-applier client not available for management cluster %s", spc.Status.ManagementClusterResourceID.String())
+	}
+	resourceID := cluster.ResourceID
+	applyDesireCRUD, err := kubeApplierClient.ApplyDesiresForCluster(resourceID.SubscriptionID, resourceID.ResourceGroupName, resourceID.Name)
+	if err != nil {
+		return utils.TrackError(fmt.Errorf("failed to get ApplyDesire CRUD: %w", err))
+	}
+	readDesireCRUD, err := kubeApplierClient.ReadDesiresForCluster(resourceID.SubscriptionID, resourceID.ResourceGroupName, resourceID.Name)
+	if err != nil {
+		return utils.TrackError(fmt.Errorf("failed to get ReadDesire CRUD: %w", err))
+	}
+
+	// Snapshotting mid-rotation can capture etcd encrypted under a key the
+	// restore will not have, so require an observed HostedCluster with no KMS
+	// rotation in flight.
+	hostedClusterReadDesire, err := readDesireCRUD.Get(ctx, kubeapplierapi.ReadDesireNameReadonlyHostedCluster)
+	if err != nil && !cosmosstorageutils.IsNotFoundError(err) {
+		return utils.TrackError(fmt.Errorf("failed to get HostedCluster ReadDesire: %w", err))
+	}
+	if hostedClusterReadDesire == nil || cosmosstorageutils.IsNotFoundError(err) {
+		return coreapi.NewCloudError(http.StatusConflict, coreapi.CloudErrorCodeConflict, "",
+			"cannot take a backup now: HostedCluster ReadDesire is not available yet")
+	}
+
+	observed := meta.IsStatusConditionTrue(hostedClusterReadDesire.Status.Conditions, kubeapplierapi.ConditionTypeSuccessful)
+	if hostedClusterReadDesire.Status.KubeContent == nil || len(hostedClusterReadDesire.Status.KubeContent.Raw) == 0 {
+		return coreapi.NewCloudError(http.StatusConflict, coreapi.CloudErrorCodeConflict, "",
+			"cannot take a backup now: HostedCluster ReadDesire has no kubeContent")
+	}
+	hostedCluster := &hyperv1beta1.HostedCluster{}
+	if err := json.Unmarshal(hostedClusterReadDesire.Status.KubeContent.Raw, hostedCluster); err != nil {
+		return utils.TrackError(fmt.Errorf("failed to unmarshal HostedCluster from ReadDesire kubeContent: %w", err))
+	}
+	if err := backup.SnapshotSafe(hostedCluster, observed); err != nil {
+		return coreapi.NewCloudError(http.StatusConflict, coreapi.CloudErrorCodeConflict, "", "cannot take a backup now: %v", err)
+	}
+
+	// Reject a second request while one is still in flight. The cleanup
+	// controller purges the ApplyDesire once the Backup is terminal, so this
+	// clears itself without any stored request state.
+	inFlight, err := inFlightRequestedBackupName(ctx, applyDesireCRUD)
+	if err != nil {
+		return err
+	}
+	if inFlight != "" {
+		return coreapi.NewCloudError(http.StatusConflict, coreapi.CloudErrorCodeConflict, "", "backup already in progress (desire: %s)", inFlight)
+	}
+
+	name := "backup-" + uuid.NewString()
+	veleroBackup := backup.NewBackup(
+		name,
+		resourceID.String(),
+		backup.ActiveKMSKeyFingerprint(hostedCluster),
+		spc.Status.HostedClusterNamespace,
+		spc.Status.ControlPlaneNamespace,
+		backup.OnDemandBackupTTL,
+	)
+
+	applyDesire, err := backup.BuildBackupApplyDesire(
+		resourceID.SubscriptionID, resourceID.ResourceGroupName, resourceID.Name,
+		spc.Status.ManagementClusterResourceID, veleroBackup,
+		backup.OnDemandBackupControllerName,
+	)
+	if err != nil {
+		return utils.TrackError(err)
+	}
+	readDesire, err := backup.BuildReadDesireFromApplyDesire(resourceID.SubscriptionID, resourceID.ResourceGroupName, resourceID.Name, applyDesire)
+	if err != nil {
+		return utils.TrackError(err)
+	}
+
+	// ApplyDesire first, so cleanup cannot mistake a successful empty read
+	// for an expired Backup before its ApplyDesire exists.
+	if _, err := applyDesireCRUD.Create(ctx, applyDesire, nil); err != nil {
+		if cosmosstorageutils.IsConflictError(err) {
+			return coreapi.NewCloudError(http.StatusConflict, coreapi.CloudErrorCodeConflict, "", "backup already in progress (desire: %s)", applyDesire.ResourceID.Name)
+		}
+		return utils.TrackError(fmt.Errorf("failed to create backup ApplyDesire: %w", err))
+	}
+	if _, err := readDesireCRUD.Create(ctx, readDesire, nil); err != nil && !cosmosstorageutils.IsConflictError(err) {
+		return utils.TrackError(fmt.Errorf("failed to create backup ReadDesire: %w", err))
+	}
+
+	_, err = coreapihelpers.WriteJSONResponse(writer, http.StatusOK, OnDemandBackupDetail{Name: name, Phase: "Pending"})
+	return utils.TrackError(err)
+}
+
+// inFlightRequestedBackupName returns the name of an existing admin-requested
+// backup ApplyDesire, or "" when none is outstanding.
+//
+// Ownership, not the tag, is what scopes this to admin-requested backups: a
+// key-rotation backup carries the same tag but is not an outstanding request,
+// and must not make this endpoint reject one.
+func inFlightRequestedBackupName(
+	ctx context.Context,
+	applyDesireCRUD cosmosstorageutils.ResourceCRUD[kubeapplierapi.ApplyDesire, *kubeapplierapi.ApplyDesire],
+) (string, error) {
+	iterator, err := applyDesireCRUD.List(ctx, nil)
+	if err != nil {
+		return "", utils.TrackError(fmt.Errorf("failed to list ApplyDesires: %w", err))
+	}
+	for _, applyDesire := range iterator.Items(ctx) {
+		if applyDesire == nil || applyDesire.ResourceID == nil {
+			continue
+		}
+		if backup.OwnsBackupDesire(applyDesire.Tags, backup.OnDemandBackupControllerName) {
+			return applyDesire.ResourceID.Name, nil
+		}
+	}
+	if err := iterator.GetError(); err != nil {
+		return "", utils.TrackError(fmt.Errorf("failed to iterate ApplyDesires: %w", err))
+	}
+	return "", nil
+}
+
 // HCPGetOnDemandBackupsHandler handles GET requests for on-demand backups.
 type HCPGetOnDemandBackupsHandler struct {
 	resourcesDBClient    corecosmosstorage.ResourcesDBClient
@@ -297,7 +465,9 @@ func (h *HCPGetOnDemandBackupsHandler) ServeHTTP(writer http.ResponseWriter, req
 		if readDesire == nil || readDesire.ResourceID == nil {
 			continue
 		}
-		if _, ok := readDesire.Tags[backup.DesireTagKeyOndemandBackup]; !ok {
+		// Both flows are in scope here: an operator listing a cluster's backups
+		// wants the key-rotation ones as well as the ones they asked for.
+		if !backup.IsBackupDesire(readDesire.Tags) {
 			continue
 		}
 		backupName := strings.TrimPrefix(readDesire.ResourceID.Name, backup.OndemandBackupDesireNamePrefix)

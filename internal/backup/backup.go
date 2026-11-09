@@ -34,15 +34,19 @@ const (
 	RecoveryDesireNamePrefix       = "recovery-"
 	OndemandBackupDesireNamePrefix = "ondemandbackup-"
 	DesireTagKeySchedule           = "backupschedule"
-	DesireTagKeyOndemandBackup     = "ondemandbackup"
-	VeleroGroup                    = "velero.io"
-	VeleroVersion                  = "v1"
-	VeleroScheduleResource         = "schedules"
-	VeleroBackupResource           = "backups"
-	VeleroNamespace                = "velero"
-	etcdHookName                   = "etcd-snapshot"
-	etcdAppLabel                   = "app"
-	etcdAppLabelValue              = "etcd"
+	// DesireTagKeyOndemandBackup marks the desire pair behind a one-shot Velero
+	// Backup, whichever flow created it: a KMS key rotation or an admin request.
+	// The two are told apart by kubeapplierapi.TagControllerName, so each flow's
+	// cleanup sweep must gate on OwnsBackupDesire rather than this tag alone.
+	DesireTagKeyOndemandBackup = "ondemandbackup"
+	VeleroGroup                = "velero.io"
+	VeleroVersion              = "v1"
+	VeleroScheduleResource     = "schedules"
+	VeleroBackupResource       = "backups"
+	VeleroNamespace            = "velero"
+	etcdHookName               = "etcd-snapshot"
+	etcdAppLabel               = "app"
+	etcdAppLabelValue          = "etcd"
 
 	// These describe the on-disk and on-network layout of a HyperShift etcd member.
 	// The backup hook below writes the snapshot, and hcp-recovery reads it back out of

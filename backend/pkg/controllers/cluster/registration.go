@@ -1046,6 +1046,23 @@ func registerBackupScheduleController() controllerconfig.ControllerRegistration 
 	}
 }
 
+func registerOnDemandBackupController() controllerconfig.ControllerRegistration {
+	return controllerconfig.ControllerRegistration{
+		Workers:     20,
+		Instantiate: controllerconfig.WithCacheSyncs(instantiateOnDemandBackupController, true),
+	}
+}
+
+func instantiateOnDemandBackupController(controllerContext controllerconfig.ControllerContext) (controllerconfig.Runnable, error) {
+	return clusterbackups.NewOnDemandBackupController(
+		controllerContext.ResourcesDBClient,
+		controllerContext.KubeApplierDBClients,
+		controllerContext.BackendInformers,
+		controllerContext.UnionKubeApplierInformers,
+		controllerContext.BackupConfig,
+	), nil
+}
+
 func registerRecoveryController() controllerconfig.ControllerRegistration {
 	return controllerconfig.ControllerRegistration{
 		Workers:     20,
@@ -1469,6 +1486,7 @@ func Register(registry map[string]controllerconfig.ControllerRegistration) {
 	registry[strings.ToLower(clusterplacement.PlacementControllerName)] = registerPlacementController()
 	registry[strings.ToLower(clusterplacement.PendingCleanupControllerName)] = registerPendingCleanupController()
 	registry[strings.ToLower(clusterbackups.BackupScheduleControllerName)] = registerBackupScheduleController()
+	registry[strings.ToLower(clusterbackups.OnDemandBackupControllerName)] = registerOnDemandBackupController()
 	registry[strings.ToLower(clusterrecovery.RecoveryControllerName)] = registerRecoveryController()
 	registry[strings.ToLower(clusterk8sresources.IngressCertificateControllerName)] = registerIngressCertificateController()
 	registry[strings.ToLower(clusterk8sresources.KubeAPIServerServingCertificateControllerName)] = registerKubeAPIServerServingCertificateController()

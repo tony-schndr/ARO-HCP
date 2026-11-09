@@ -1,0 +1,456 @@
+---
+# Source: hcp-recovery/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hcp-recovery
+  namespace: hcp-recovery
+---
+# Source: hcp-recovery/templates/worker-rbac.yaml
+# Identity for the short-lived pods that carry out recovery work inside the
+# control-plane namespace: copying the etcd snapshot between holder pods and
+# interrogating etcd once it is back up.
+#
+# This is separate from the controller's own ServiceAccount on purpose. Driving those
+# pods needs pods/exec, which is effectively root inside any pod it can reach, so the
+# grant is kept off the controller and narrowed to the specific pod names involved.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hcp-recovery-worker
+  namespace: hcp-recovery
+---
+# Source: hcp-recovery/templates/hcprecovery-crd.yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: hcprecoveries.hcprecovery.aro-hcp.azure.com
+spec:
+  group: hcprecovery.aro-hcp.azure.com
+  names:
+    kind: HCPRecovery
+    listKind: HCPRecoveryList
+    plural: hcprecoveries
+    singular: hcprecovery
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - name: ClusterID
+      type: string
+      jsonPath: .spec.hcpClusterAzureResourceId
+    - name: BackupID
+      type: string
+      jsonPath: .spec.veleroBackupName
+    - name: Phase
+      type: string
+      jsonPath: .status.phase
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-validations:
+        - rule: "(!has(oldSelf.status) || !has(oldSelf.status.phase)) ? (!has(self.status) || !has(self.status.phase) || self.status.phase in ['Preparing', 'Failed']) : (has(self.status) && has(self.status.phase) && (self.status.phase == 'Failed' || self.status.phase == oldSelf.status.phase || (oldSelf.status.phase == 'Preparing' && self.status.phase == 'Restoring') || (oldSelf.status.phase == 'Restoring' && self.status.phase == 'Validating') || (oldSelf.status.phase == 'Validating' && self.status.phase == 'Completed')))"
+          message: phase must advance Preparing -> Restoring -> Validating -> Completed, or to Failed from any phase
+        required:
+        - spec
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            type: object
+            x-kubernetes-validations:
+            - rule: self == oldSelf
+              message: spec is immutable
+            required:
+            - hcpClusterAzureResourceId
+            - hostedClusterName
+            - hostedClusterNamespace
+            - controlPlaneNamespace
+            - veleroBackupName
+            properties:
+              hcpClusterAzureResourceId:
+                type: string
+              hostedClusterName:
+                type: string
+                minLength: 1
+              hostedClusterNamespace:
+                type: string
+              controlPlaneNamespace:
+                type: string
+              veleroBackupName:
+                type: string
+          status:
+            type: object
+            properties:
+              phase:
+                type: string
+                enum:
+                - Preparing
+                - Restoring
+                - Validating
+                - Completed
+                - Failed
+              startedAt:
+                type: string
+                format: date-time
+              completedAt:
+                type: string
+                format: date-time
+              restoredToTimestamp:
+                type: string
+                format: date-time
+              restoreName:
+                type: string
+              etcdRuntimeDetails:
+                type: object
+                required:
+                - image
+                properties:
+                  image:
+                    type: string
+                  runAsUser:
+                    type: integer
+                    format: int64
+                    minimum: 0
+                  fsGroup:
+                    type: integer
+                    format: int64
+                    minimum: 0
+              etcdSnapshot:
+                type: object
+                required:
+                - sourceMember
+                - sha256
+                - revision
+                properties:
+                  sourceMember:
+                    type: string
+                    minLength: 1
+                  sha256:
+                    type: string
+                    minLength: 64
+                    maxLength: 64
+                    pattern: "^[0-9a-f]{64}$"
+                  revision:
+                    type: integer
+                    format: int64
+                    minimum: 0
+              conditions:
+                type: array
+                x-kubernetes-list-type: map
+                x-kubernetes-list-map-keys:
+                - type
+                items:
+                  type: object
+                  required:
+                  - type
+                  - status
+                  - reason
+                  - message
+                  - lastTransitionTime
+                  properties:
+                    type:
+                      type: string
+                    status:
+                      type: string
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                    reason:
+                      type: string
+                    message:
+                      type: string
+                    observedGeneration:
+                      type: integer
+                      format: int64
+                      minimum: 0
+                    lastTransitionTime:
+                      type: string
+                      format: date-time
+---
+# Source: hcp-recovery/templates/clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hcp-recovery-controller
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+  # The controller creates and reaps the short-lived pods that reach into the
+  # control-plane namespace on its behalf. It is deliberately not granted pods/exec;
+  # only the worker ServiceAccount below has that.
+  - create
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - watch
+  - delete
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  - deployments
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+- apiGroups:
+  - apps
+  resources:
+  - deployments/scale
+  resourceNames:
+  - kube-apiserver
+  verbs:
+  - patch
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets/scale
+  resourceNames:
+  - etcd
+  verbs:
+  - patch
+- apiGroups:
+  - hypershift.openshift.io
+  resources:
+  - hostedclusters
+  verbs:
+  - get
+  - list
+  - watch
+  - patch
+- apiGroups:
+  - hypershift.openshift.io
+  resources:
+  - hostedcontrolplanes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - velero.io
+  resources:
+  - backups
+  - restores
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - velero.io
+  resources:
+  - restores
+  verbs:
+  - create
+---
+# Source: hcp-recovery/templates/worker-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hcp-recovery-worker
+rules:
+# kubectl wait/exec resolve the target pod before streaming to it.
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/exec
+  resourceNames:
+  # The holder pods that mount the etcd volumes during snapshot distribution, and the
+  # etcd member that answers the post-restore health check.
+  - etcd-holder-0
+  - etcd-holder-1
+  - etcd-holder-2
+  - etcd-0
+  verbs:
+  - create
+---
+# Source: hcp-recovery/templates/clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hcp-recovery-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hcp-recovery-controller
+subjects:
+- kind: ServiceAccount
+  name: hcp-recovery
+  namespace: hcp-recovery
+---
+# Source: hcp-recovery/templates/worker-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hcp-recovery-worker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hcp-recovery-worker
+subjects:
+- kind: ServiceAccount
+  name: hcp-recovery-worker
+  namespace: hcp-recovery
+---
+# Source: hcp-recovery/templates/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hcp-recovery-controller
+  namespace: hcp-recovery
+rules:
+- apiGroups:
+  - hcprecovery.aro-hcp.azure.com
+  resources:
+  - hcprecoveries
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - hcprecovery.aro-hcp.azure.com
+  resources:
+  - hcprecoveries/status
+  verbs:
+  - get
+  - patch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+# Source: hcp-recovery/templates/rolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hcp-recovery-controller
+  namespace: hcp-recovery
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hcp-recovery-controller
+subjects:
+- kind: ServiceAccount
+  name: hcp-recovery
+  namespace: hcp-recovery
+---
+# Source: hcp-recovery/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hcp-recovery
+  namespace: hcp-recovery
+  labels:
+    app.kubernetes.io/name: hcp-recovery
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hcp-recovery
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hcp-recovery
+    spec:
+      serviceAccountName: hcp-recovery
+      securityContext:
+        runAsNonRoot: true
+      containers:
+      - name: hcp-recovery-controller
+        image: "arohcpsvcdev.azurecr.io/arohcprecovery@sha256:1234567890"
+        args:
+        - "--health-address=:8080"
+        - "--log-verbosity=2"
+        - "--worker-image=mcr.microsoft.com/aks/command/runtime@sha256:1234567890"
+        - "--worker-service-account=hcp-recovery-worker"
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        ports:
+        - name: health
+          containerPort: 8080
+          protocol: TCP
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          runAsGroup: 65532
+          seccompProfile:
+            type: RuntimeDefault
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 512Mi
+      priorityClassName: service-lifecycle-critical
+      terminationGracePeriodSeconds: 10
+

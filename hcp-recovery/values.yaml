@@ -1,0 +1,21 @@
+image:
+  registry: "{{ .acr.svc.name }}.{{ .acrDNSSuffix }}"
+  repository: "{{ .hcpRecovery.image.repository }}"
+  digest: "{{ .hcpRecovery.image.digest }}"
+deployment:
+  replicas: "{{ .hcpRecovery.k8s.replicas }}"
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
+logVerbosity: 2
+health:
+  port: 8080
+serviceAccount:
+  name: "{{ .hcpRecovery.k8s.serviceAccountName }}"
+# Image for the short-lived pods that drive recovery work in the control-plane
+# namespace. It must carry kubectl and jq, which the AKS runtime image does.
+workerImage: "{{ .aksCommandRuntime.image.registry }}/{{ .aksCommandRuntime.image.repository }}@{{ .aksCommandRuntime.image.digest }}"
+workerServiceAccount:
+  name: hcp-recovery-worker

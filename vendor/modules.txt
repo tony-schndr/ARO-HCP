@@ -65,6 +65,8 @@ dario.cat/mergo
 ## explicit; go 1.26.0
 # github.com/Azure/ARO-HCP/frontend v0.0.0-00010101000000-000000000000 => ./frontend
 ## explicit; go 1.26.0
+# github.com/Azure/ARO-HCP/hcp-recovery v0.0.0-00010101000000-000000000000 => ./hcp-recovery
+## explicit; go 1.26.0
 # github.com/Azure/ARO-HCP/internal v0.0.0-00010101000000-000000000000 => ./internal
 ## explicit; go 1.26.0
 # github.com/Azure/ARO-HCP/internal v0.0.0-20260410130855-a983e955fbe8 => ./internal

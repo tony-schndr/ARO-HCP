@@ -149,6 +149,9 @@ resourceGroups:
     - serviceGroup: Microsoft.Azure.ARO.HCP.MgmtAgent
       resourceGroup: management
       step: deploy
+    - serviceGroup: Microsoft.Azure.ARO.HCP.HcpRecovery
+      resourceGroup: management
+      step: deploy
     - serviceGroup: Microsoft.Azure.ARO.HCP.Velero
       resourceGroup: management
       step: deploy-velero

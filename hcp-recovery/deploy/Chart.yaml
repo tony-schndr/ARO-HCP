@@ -1,0 +1,5 @@
+apiVersion: v2
+name: hcp-recovery
+description: Controller for recovering Hosted Control Planes on ARO HCP management clusters.
+type: application
+version: 0.1.0

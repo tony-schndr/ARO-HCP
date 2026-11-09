@@ -1,5 +1,10 @@
 # SOP — Restore a HyperShift (ARO-HCP) etcd cluster from a Velero backup
 
+For the automated implementation, see
+[Hosted cluster recovery: implemented controller flow](../hcp-recovery/docs/hosted-cluster-recovery-flow.md),
+including Mermaid diagrams, controller handoffs, safety gates, and differences from
+this manual procedure.
+
 **What this does:** rebuilds a Managed 3-member etcd cluster for a HostedControlPlane
 from a Velero backup, using one canonical snapshot restored identically
 into all three PVCs (so all three boot as ONE `state=new` cluster).

@@ -1,0 +1,53 @@
+# Identity for the short-lived pods that carry out recovery work inside the
+# control-plane namespace: copying the etcd snapshot between holder pods and
+# interrogating etcd once it is back up.
+#
+# This is separate from the controller's own ServiceAccount on purpose. Driving those
+# pods needs pods/exec, which is effectively root inside any pod it can reach, so the
+# grant is kept off the controller and narrowed to the specific pod names involved.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.workerServiceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hcp-recovery-worker
+rules:
+# kubectl wait/exec resolve the target pod before streaming to it.
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/exec
+  resourceNames:
+  # The holder pods that mount the etcd volumes during snapshot distribution, and the
+  # etcd member that answers the post-restore health check.
+  - etcd-holder-0
+  - etcd-holder-1
+  - etcd-holder-2
+  - etcd-0
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hcp-recovery-worker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hcp-recovery-worker
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.workerServiceAccount.name }}
+  namespace: {{ .Release.Namespace }}

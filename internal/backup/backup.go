@@ -24,6 +24,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	hyperv1beta1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
+
 	"github.com/Azure/ARO-HCP/internal/controllerutils"
 )
 
@@ -40,20 +42,32 @@ const (
 	etcdHookName                   = "etcd-snapshot"
 	etcdAppLabel                   = "app"
 	etcdAppLabelValue              = "etcd"
-	etcdContainerName              = "etcd"
-	etcdSnapshotPath               = "/var/lib/backup.db"
-	etcdCACertPath                 = "/etc/etcd/tls/etcd-ca/ca.crt"
-	etcdClientCert                 = "/etc/etcd/tls/client/etcd-client.crt"
-	etcdClientKey                  = "/etc/etcd/tls/client/etcd-client.key"
-	etcdClientService              = "etcd-client"
-	etcdClientPort                 = "2379"
+
+	// These describe the on-disk and on-network layout of a HyperShift etcd member.
+	// The backup hook below writes the snapshot, and hcp-recovery reads it back out of
+	// the restored volume, so both sides must agree on every one of these values.
+
+	// EtcdContainerName is the name of the etcd container in the etcd StatefulSet's pod.
+	EtcdContainerName = "etcd"
+	// EtcdSnapshotPath is where the backup hook writes the etcd snapshot on the member's
+	// data volume, and therefore where a restored volume carries it.
+	EtcdSnapshotPath = "/var/lib/backup.db"
+	// EtcdCACertPath, EtcdClientCert and EtcdClientKey are the mTLS materials mounted into
+	// the etcd container, used by etcdctl.
+	EtcdCACertPath = "/etc/etcd/tls/etcd-ca/ca.crt"
+	EtcdClientCert = "/etc/etcd/tls/client/etcd-client.crt"
+	EtcdClientKey  = "/etc/etcd/tls/client/etcd-client.key"
+	// EtcdClientService and EtcdClientPort address the etcd client endpoint in a
+	// control-plane namespace.
+	EtcdClientService = "etcd-client"
+	EtcdClientPort    = "2379"
 )
 
 // etcdBackupHooks defines velero hooks that are run pre and post backup with the etcd pods via exec.
 // The etcdctl snapshot is taken and will be captured by the CSI snapshot of the PVC.  After the backup is
 // complete a post hook deletes the backup from the pvc to free up space.
 func etcdBackupHooks(controlPlaneNamespace string) velerov1api.BackupHooks {
-	endpoint := fmt.Sprintf("https://%s.%s.svc:%s", etcdClientService, controlPlaneNamespace, etcdClientPort)
+	endpoint := fmt.Sprintf("https://%s.%s.svc:%s", EtcdClientService, controlPlaneNamespace, EtcdClientPort)
 	return velerov1api.BackupHooks{
 		Resources: []velerov1api.BackupResourceHookSpec{
 			{
@@ -68,7 +82,7 @@ func etcdBackupHooks(controlPlaneNamespace string) velerov1api.BackupHooks {
 				PreHooks: []velerov1api.BackupResourceHook{
 					{
 						Exec: &velerov1api.ExecHook{
-							Container: etcdContainerName,
+							Container: EtcdContainerName,
 							Command: []string{
 								"/bin/sh", "-c",
 								// `etcdctl snapshot save` writes to <path>.part, fsyncs that file, then atomically
@@ -81,7 +95,7 @@ func etcdBackupHooks(controlPlaneNamespace string) velerov1api.BackupHooks {
 								// so the flush is guaranteed to land first.
 								fmt.Sprintf(
 									"ETCDCTL_API=3 etcdctl --endpoints=%s --cacert %s --cert %s --key %s snapshot save %s && sync -f %s",
-									endpoint, etcdCACertPath, etcdClientCert, etcdClientKey, etcdSnapshotPath, etcdSnapshotPath,
+									endpoint, EtcdCACertPath, EtcdClientCert, EtcdClientKey, EtcdSnapshotPath, EtcdSnapshotPath,
 								),
 							},
 							OnError: velerov1api.HookErrorModeFail,
@@ -92,10 +106,10 @@ func etcdBackupHooks(controlPlaneNamespace string) velerov1api.BackupHooks {
 				PostHooks: []velerov1api.BackupResourceHook{
 					{
 						Exec: &velerov1api.ExecHook{
-							Container: etcdContainerName,
+							Container: EtcdContainerName,
 							Command: []string{
 								"/bin/sh", "-c",
-								fmt.Sprintf("rm -f %s %s.part", etcdSnapshotPath, etcdSnapshotPath),
+								fmt.Sprintf("rm -f %s %s.part", EtcdSnapshotPath, EtcdSnapshotPath),
 							},
 							OnError: velerov1api.HookErrorModeContinue,
 							Timeout: metav1.Duration{Duration: 2 * time.Minute},
@@ -136,6 +150,18 @@ var backupIncludedResources = []string{
 	"machine",
 	"route",
 	"clusterdeployment",
+}
+
+// ActiveKMSKeyFingerprint returns the fingerprint of the HostedCluster's active
+// Azure KMS key, or "" when the cluster is not using a customer-managed key.
+// The fingerprint is recorded on the Velero Backup so a restore can tell which
+// key the snapshot's etcd data is encrypted under.
+func ActiveKMSKeyFingerprint(hostedCluster *hyperv1beta1.HostedCluster) string {
+	activeKey := hostedCluster.Status.SecretEncryption.ActiveKey.Azure
+	if activeKey.KeyVersion == "" {
+		return ""
+	}
+	return AzureKMSKeyFingerprint(activeKey.KeyVaultName, activeKey.KeyName, activeKey.KeyVersion)
 }
 
 // AzureKMSKeyFingerprint mirrors HyperShift's FingerprintAzureKMSKey.

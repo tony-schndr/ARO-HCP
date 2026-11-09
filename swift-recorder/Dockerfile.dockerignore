@@ -10,6 +10,7 @@
 !fleet/**
 !frontend/**
 !hack/**
+!hcp-recovery/**
 !internal/**
 !kube-applier/**
 !mgmt-agent/**
@@ -25,6 +26,7 @@ backend/aro-hcp-backend
 sessiongate/bin
 admin/aro-hcp-admin
 admin/aro-hcp-admin-cli
+hcp-recovery/bin
 mgmt-agent/bin
 fleet/fleet
 kube-applier/kube-applier

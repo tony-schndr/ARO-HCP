@@ -38,6 +38,38 @@ const (
 	BackupScheduleStateDisabled BackupScheduleState = "Disabled"
 )
 
+type RecoveryState string
+
+const (
+	RecoveryStatePending           RecoveryState = "Pending"
+	RecoveryStateRecoveryCRCreated RecoveryState = "RecoveryCRCreated"
+	RecoveryStateInProgress        RecoveryState = "InProgress"
+	RecoveryStateCompleted         RecoveryState = "Completed"
+	RecoveryStateFailed            RecoveryState = "Failed"
+)
+
+func (s RecoveryState) IsTerminal() bool {
+	return s == RecoveryStateCompleted || s == RecoveryStateFailed
+}
+
+type RecoveryRequest struct {
+	// Written by: Admin API POST Restore
+	RecoveryID string `json:"recoveryId"`
+	// Written by: Admin API POST Restore
+	VeleroBackupName string `json:"veleroBackupName"`
+}
+
+type RecoveryStatus struct {
+	// Written by: Recovery
+	RecoveryID string `json:"recoveryId"`
+	// Written by: Recovery
+	State RecoveryState `json:"state,omitempty"`
+	// Written by: Recovery
+	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+	// Written by: Recovery
+	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
+}
+
 const (
 	// ServiceProviderClusterResourceName is the name of the ServiceProviderCluster resource.
 	// ServiceProviderCluster is a singleton resource and ARM convention is to
@@ -107,7 +139,12 @@ type ServiceProviderClusterSpec struct {
 
 	// BackupScheduleState is the desired backup scheduling state: Enabled or Disabled.
 	// Default is Enabled. Set to Disabled via Admin API to pause scheduled backups.
+	// Written by: Admin API PATCH BackupSchedule, Recovery
 	BackupScheduleState BackupScheduleState `json:"backupScheduleState,omitempty"`
+
+	// RecoveryRequests records the requested recoveries, including completed requests.
+	// Written by: Admin API POST Restore
+	RecoveryRequests []RecoveryRequest `json:"recoveryRequests,omitempty"`
 
 	// ManagementClusterResourceID is the resource ID of the management cluster the
 	// scheduler has selected for this HCP. This is the scheduler's intent (desired
@@ -178,6 +215,10 @@ type ServiceProviderClusterPinnedVersion struct {
 
 // ServiceProviderClusterStatus contains the observed state of the cluster.
 type ServiceProviderClusterStatus struct {
+	// Recoveries tracks the backend's progress for each recovery request.
+	// Written by: Recovery
+	Recoveries []RecoveryStatus `json:"recoveries,omitempty"`
+
 	// Conditions are the top-level ServiceProviderCluster status conditions.
 	// Each Condition Type represents a condition and it should be unique among all conditions.
 	// +optional

@@ -20,7 +20,7 @@ LDFLAGS = -ldflags "\
 	-X github.com/Azure/ARO-HCP/internal/version.CommitSHA=${ARO_HCP_REVISION}"
 
 # Source files
-BACKEND_SOURCES = $(shell find . -name '*.go' -o -name 'go.mod' -o -name 'go.sum')
+BACKEND_SOURCES = $(shell find . ../hcp-recovery/pkg/apis -name '*.go' -o -name 'go.mod' -o -name 'go.sum') ../hcp-recovery/go.mod ../hcp-recovery/go.sum
 
 # Default target
 .DEFAULT_GOAL := build

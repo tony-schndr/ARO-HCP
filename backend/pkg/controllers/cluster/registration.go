@@ -42,6 +42,7 @@ import (
 	clusterplacement "github.com/Azure/ARO-HCP/backend/pkg/controllers/cluster/placement"
 	clusterproperties "github.com/Azure/ARO-HCP/backend/pkg/controllers/cluster/properties"
 	clusterreaddesires "github.com/Azure/ARO-HCP/backend/pkg/controllers/cluster/readdesires"
+	clusterrecovery "github.com/Azure/ARO-HCP/backend/pkg/controllers/cluster/recovery"
 	clusterroleassignments "github.com/Azure/ARO-HCP/backend/pkg/controllers/cluster/roleassignments"
 	clusterstatus "github.com/Azure/ARO-HCP/backend/pkg/controllers/cluster/status"
 	clusterupdate "github.com/Azure/ARO-HCP/backend/pkg/controllers/cluster/update"
@@ -1045,6 +1046,24 @@ func registerBackupScheduleController() controllerconfig.ControllerRegistration 
 	}
 }
 
+func registerRecoveryController() controllerconfig.ControllerRegistration {
+	return controllerconfig.ControllerRegistration{
+		Workers:     20,
+		Instantiate: controllerconfig.WithCacheSyncs(instantiateRecoveryController, true),
+	}
+}
+
+func instantiateRecoveryController(controllerContext controllerconfig.ControllerContext) (controllerconfig.Runnable, error) {
+	return clusterrecovery.NewRecoveryController(
+		controllerContext.ResourcesDBClient,
+		controllerContext.KubeApplierDBClients,
+		controllerContext.BackendInformers,
+		controllerContext.UnionKubeApplierInformers,
+		controllerContext.BackupConfig,
+		controllerContext.Clock,
+	), nil
+}
+
 func instantiateBackupScheduleController(controllerContext controllerconfig.ControllerContext) (controllerconfig.Runnable, error) {
 	return clusterbackups.NewBackupScheduleController(
 		controllerContext.ResourcesDBClient,
@@ -1450,6 +1469,7 @@ func Register(registry map[string]controllerconfig.ControllerRegistration) {
 	registry[strings.ToLower(clusterplacement.PlacementControllerName)] = registerPlacementController()
 	registry[strings.ToLower(clusterplacement.PendingCleanupControllerName)] = registerPendingCleanupController()
 	registry[strings.ToLower(clusterbackups.BackupScheduleControllerName)] = registerBackupScheduleController()
+	registry[strings.ToLower(clusterrecovery.RecoveryControllerName)] = registerRecoveryController()
 	registry[strings.ToLower(clusterk8sresources.IngressCertificateControllerName)] = registerIngressCertificateController()
 	registry[strings.ToLower(clusterk8sresources.KubeAPIServerServingCertificateControllerName)] = registerKubeAPIServerServingCertificateController()
 	registry[strings.ToLower(clusterazureresources.KubeAPIServerTLSCertificateControllerName)] = registerKubeAPIServerTLSCertificateController()

@@ -31,6 +31,7 @@ import (
 
 const (
 	BackupScheduleDesireNamePrefix = "backupschedule-"
+	RecoveryDesireNamePrefix       = "recovery-"
 	OndemandBackupDesireNamePrefix = "ondemandbackup-"
 	DesireTagKeySchedule           = "backupschedule"
 	DesireTagKeyOndemandBackup     = "ondemandbackup"
@@ -62,6 +63,14 @@ const (
 	EtcdClientService = "etcd-client"
 	EtcdClientPort    = "2379"
 )
+
+// RecoveryDesireName returns the ApplyDesire/ReadDesire name for the HCPRecovery
+// of the given recovery. The backend Recovery controller creates the pair under
+// this name and the admin API reads the ReadDesire back by it, so both sides
+// must derive it here rather than concatenating the prefix themselves.
+func RecoveryDesireName(recoveryID string) string {
+	return RecoveryDesireNamePrefix + recoveryID
+}
 
 // etcdBackupHooks defines velero hooks that are run pre and post backup with the etcd pods via exec.
 // The etcdctl snapshot is taken and will be captured by the CSI snapshot of the PVC.  After the backup is
